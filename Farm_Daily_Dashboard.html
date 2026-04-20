@@ -1,0 +1,592 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>Farm Daily Dashboard</title>
+<script src="https://cdn.plot.ly/plotly-2.32.0.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<style>
+:root{
+  --bg:#f0f4f8;--card:#fff;--bdr:#dde3ed;--text:#1a2b3c;--muted:#7a8fa6;
+  --A:#1565C0;--B:#2E7D32;--C:#E65100;
+  --ok:#16a34a;--warn:#ca8a04;--bad:#dc2626;
+  --ok-bg:#f0fdf4;--warn-bg:#fefce8;--bad-bg:#fff1f2;--r:10px;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'Segoe UI',Arial,sans-serif;background:var(--bg);color:var(--text);font-size:14px}
+
+/* header */
+.hdr{background:linear-gradient(135deg,#0d3b6e,#1565C0);color:#fff;
+     padding:12px 24px;display:flex;align-items:center;justify-content:space-between;
+     box-shadow:0 2px 8px rgba(0,0,0,.2);gap:10px;flex-wrap:wrap}
+.hdr-title{font-size:1.2rem;font-weight:700}
+.hdr-sub{font-size:.73rem;opacity:.7;margin-top:2px}
+.hdr-right{display:flex;align-items:center;gap:10px}
+.upd-btn{background:#fff;color:#0d3b6e;border:none;border-radius:8px;padding:7px 16px;
+         font-size:.85rem;font-weight:700;cursor:pointer;display:flex;align-items:center;gap:5px;transition:all .18s}
+.upd-btn:hover{background:#dbeafe}.upd-btn:disabled{opacity:.5;cursor:not-allowed}
+.last-upd{font-size:.73rem;opacity:.8;text-align:right;line-height:1.5}
+
+/* ── COMPACT alert bar ── */
+.alert-bar{display:flex;align-items:stretch;gap:0;margin:12px 24px;
+           border-radius:var(--r);overflow:hidden;box-shadow:0 1px 4px rgba(0,0,0,.1)}
+.alert-summary{padding:10px 16px;display:flex;align-items:center;gap:8px;
+               font-weight:700;font-size:.88rem;white-space:nowrap;min-width:110px;
+               border-right:1px solid rgba(255,255,255,.3)}
+.alert-summary.all-ok{background:var(--ok);color:#fff}
+.alert-summary.has-bad{background:var(--bad);color:#fff}
+.alert-summary.has-warn{background:var(--warn);color:#fff}
+.alert-chips{display:flex;align-items:center;gap:6px;padding:8px 14px;
+             background:#fff;flex-wrap:wrap;flex:1}
+.chip{display:inline-flex;align-items:center;gap:4px;padding:3px 9px;border-radius:20px;
+      font-size:.77rem;font-weight:600;white-space:nowrap;cursor:default}
+.chip-bad{background:#fee2e2;color:var(--bad);border:1px solid #fca5a5}
+.chip-warn{background:#fef9c3;color:#92400e;border:1px solid #fde047}
+
+/* ── alert detail drawer (hidden by default, shown on chip click) ── */
+.alert-drawer{display:none;margin:-12px 24px 12px;background:#fff;
+              border:1px solid var(--bdr);border-top:none;border-radius:0 0 var(--r) var(--r);
+              padding:10px 16px;font-size:.82rem;line-height:1.8}
+.alert-drawer.open{display:block}
+.drawer-row{display:flex;align-items:flex-start;gap:8px;padding:3px 0;
+            border-bottom:1px solid #f0f4f8}
+.drawer-row:last-child{border-bottom:none}
+.drawer-tank{font-weight:700;min-width:55px;flex-shrink:0}
+.drawer-action{color:#374151}
+
+/* tank cards */
+.tanks-row{display:grid;grid-template-columns:1fr 1fr 1fr;gap:14px;padding:0 24px 14px}
+@media(max-width:860px){.tanks-row{grid-template-columns:1fr}}
+.tank-card{background:var(--card);border-radius:var(--r);
+           box-shadow:0 1px 5px rgba(0,0,0,.08);overflow:hidden}
+.tank-card-A{border-top:4px solid var(--A)}
+.tank-card-B{border-top:4px solid var(--B)}
+.tank-card-C{border-top:4px solid var(--C)}
+.tc-head{padding:10px 14px 6px;display:flex;align-items:center;justify-content:space-between}
+.tc-name{font-size:1.05rem;font-weight:800}
+.tc-name-A{color:var(--A)}.tc-name-B{color:var(--B)}.tc-name-C{color:var(--C)}
+.tc-badges{display:flex;gap:6px;align-items:center}
+.doc-badge{background:#e8f0fe;color:#1565C0;font-size:.72rem;font-weight:700;padding:2px 9px;border-radius:12px}
+.status-badge{font-size:.72rem;font-weight:700;padding:2px 9px;border-radius:12px}
+.sb-ok{background:#dcfce7;color:var(--ok)}.sb-warn{background:#fef9c3;color:#92400e}.sb-bad{background:#fee2e2;color:var(--bad)}
+.param-tbl{width:100%;border-collapse:collapse;font-size:.8rem}
+.param-tbl th{background:#f8fafc;color:var(--muted);font-weight:600;padding:5px 8px;
+              border-bottom:1px solid var(--bdr);text-align:center;font-size:.69rem}
+.param-tbl td{padding:5px 8px;border-bottom:1px solid #f0f4f8;text-align:center;vertical-align:middle}
+.param-tbl tr:last-child td{border-bottom:none}
+.pname{text-align:left!important;font-weight:600;font-size:.79rem}
+.dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:4px;vertical-align:middle}
+.dot-ok{background:var(--ok)}.dot-warn{background:var(--warn)}.dot-bad{background:var(--bad)}
+.val-ok{color:var(--ok);font-weight:700}.val-warn{color:var(--warn);font-weight:700}
+.val-bad{color:var(--bad);font-weight:700}.val-na{color:#c5d0dc;font-size:.74rem}
+.delta-up-bad{color:var(--bad);font-size:.7rem}.delta-dn-bad{color:var(--bad);font-size:.7rem}
+.delta-good{color:var(--ok);font-size:.7rem}.delta-eq{color:var(--muted);font-size:.7rem}
+.mw-row{padding:5px 14px 8px;font-size:.76rem;color:var(--muted);
+        border-top:1px solid var(--bdr);display:flex;gap:12px;flex-wrap:wrap}
+.mw-val{font-weight:700;color:var(--text);font-size:.86rem}
+
+/* chart section */
+.chart-section{background:var(--card);margin:0 24px 24px;border-radius:var(--r);
+               box-shadow:0 1px 5px rgba(0,0,0,.08)}
+.chart-controls{padding:11px 18px;border-bottom:1px solid var(--bdr);
+                display:flex;align-items:center;gap:14px;flex-wrap:wrap}
+.ctrl-grp{display:flex;align-items:center;gap:6px}
+.ctrl-lbl{font-size:.7rem;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.4px;white-space:nowrap}
+.pbtn,.dbtn{padding:4px 11px;border:1.5px solid var(--bdr);border-radius:6px;
+  background:#fff;cursor:pointer;font-size:.79rem;font-weight:600;color:var(--muted);transition:all .15s}
+.pbtn.active{background:var(--A);color:#fff;border-color:var(--A)}
+.dbtn.active{background:#0d3b6e;color:#fff;border-color:#0d3b6e}
+.pbtn:hover,.dbtn:hover{border-color:#1565C0;color:#1565C0}
+.charts-grid{display:grid;grid-template-columns:1fr 1fr 1fr;border-top:1px solid var(--bdr)}
+@media(max-width:860px){.charts-grid{grid-template-columns:1fr}}
+.chart-col{border-right:1px solid var(--bdr)}
+.chart-col:last-child{border-right:none}
+.chart-col-hdr{padding:8px 14px 2px;display:flex;align-items:center;justify-content:space-between}
+.cc-title{font-size:.88rem;font-weight:700}
+.cc-A{color:var(--A)}.cc-B{color:var(--B)}.cc-C{color:var(--C)}
+.cc-leg{font-size:.7rem;color:var(--muted);display:flex;gap:10px}
+
+/* OneDrive error modal */
+.od-modal{display:none;position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:200;
+          align-items:center;justify-content:center}
+.od-modal.show{display:flex}
+.od-box{background:#fff;border-radius:14px;padding:28px 32px;max-width:480px;width:90%;
+        box-shadow:0 8px 32px rgba(0,0,0,.2)}
+.od-box h3{font-size:1.05rem;font-weight:700;color:var(--bad);margin-bottom:12px}
+.od-box p{font-size:.85rem;color:#374151;line-height:1.7;margin-bottom:10px}
+.od-steps{background:#f8fafc;border-radius:8px;padding:12px 16px;margin:12px 0;
+          font-size:.83rem;line-height:2}
+.od-close{background:#1565C0;color:#fff;border:none;border-radius:8px;padding:8px 20px;
+          font-size:.9rem;font-weight:700;cursor:pointer;float:right;margin-top:8px}
+
+/* misc */
+.toast{position:fixed;bottom:18px;right:18px;background:#1a2b3c;color:#fff;
+       padding:10px 18px;border-radius:10px;font-size:.85rem;opacity:0;transition:opacity .3s;pointer-events:none;z-index:999}
+.toast.show{opacity:1}
+.overlay{display:none;position:fixed;inset:0;background:rgba(255,255,255,.78);
+         z-index:100;align-items:center;justify-content:center;flex-direction:column;gap:12px}
+.overlay.show{display:flex}
+.spinner{width:38px;height:38px;border:4px solid #d1dbe8;border-top:4px solid #1565C0;
+         border-radius:50%;animation:spin .8s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+</style>
+</head>
+<body>
+
+<!-- loading overlay -->
+<div class="overlay" id="overlay">
+  <div class="spinner"></div>
+  <div style="color:#0d3b6e;font-weight:600;font-size:.92rem">OneDrive에서 데이터 로드 중...</div>
+</div>
+
+
+
+<!-- Header -->
+<div class="hdr">
+  <div>
+    <div class="hdr-title">&#127803; Farm Daily Dashboard</div>
+    <div class="hdr-sub">Aqua Development &mdash; 수조 일일 현황 모니터링</div>
+  </div>
+  <div class="hdr-right">
+    <div class="last-upd">
+      <div style="font-size:.69rem;opacity:.7">기준 데이터</div>
+      <div id="lastUpd">2026-04-20 16:44</div>
+    </div>
+    <button class="upd-btn" id="updBtn" onclick="updateNow()">&#128260; Update Now</button>
+  </div>
+</div>
+
+<!-- Compact Alert Bar -->
+<div id="alertBar" class="alert-bar"></div>
+<div id="alertDrawer" class="alert-drawer"></div>
+
+<!-- Tank Cards -->
+<div class="tanks-row">
+  <div class="tank-card tank-card-A">
+    <div class="tc-head">
+      <span class="tc-name tc-name-A">&#127803; Tank A</span>
+      <div class="tc-badges">
+        <span class="doc-badge" id="tc-doc-A">DOC —</span>
+        <span id="tc-status-A" class="status-badge sb-ok">—</span>
+      </div>
+    </div>
+    <table class="param-tbl">
+      <thead><tr>
+        <th style="text-align:left">파라미터</th>
+        <th>AM</th><th>PM</th><th>&#9651;&#9661;</th>
+      </tr></thead>
+      <tbody id="tc-body-A"></tbody>
+    </table>
+    <div class="mw-row" id="tc-mw-A"></div>
+  </div>
+  <div class="tank-card tank-card-B">
+    <div class="tc-head">
+      <span class="tc-name tc-name-B">&#127803; Tank B</span>
+      <div class="tc-badges">
+        <span class="doc-badge" id="tc-doc-B">DOC —</span>
+        <span id="tc-status-B" class="status-badge sb-ok">—</span>
+      </div>
+    </div>
+    <table class="param-tbl">
+      <thead><tr>
+        <th style="text-align:left">파라미터</th>
+        <th>AM</th><th>PM</th><th>&#9651;&#9661;</th>
+      </tr></thead>
+      <tbody id="tc-body-B"></tbody>
+    </table>
+    <div class="mw-row" id="tc-mw-B"></div>
+  </div>
+  <div class="tank-card tank-card-C">
+    <div class="tc-head">
+      <span class="tc-name tc-name-C">&#127803; Tank C</span>
+      <div class="tc-badges">
+        <span class="doc-badge" id="tc-doc-C">DOC —</span>
+        <span id="tc-status-C" class="status-badge sb-ok">—</span>
+      </div>
+    </div>
+    <table class="param-tbl">
+      <thead><tr>
+        <th style="text-align:left">파라미터</th>
+        <th>AM</th><th>PM</th><th>&#9651;&#9661;</th>
+      </tr></thead>
+      <tbody id="tc-body-C"></tbody>
+    </table>
+    <div class="mw-row" id="tc-mw-C"></div>
+  </div>
+</div>
+
+<!-- Charts -->
+<div class="chart-section">
+  <div class="chart-controls">
+    <div class="ctrl-grp">
+      <span class="ctrl-lbl">파라미터</span>
+      <button class="pbtn" data-p="Temp" onclick="selectParam('Temp')">Temp</button>
+      <button class="pbtn active" data-p="DO" onclick="selectParam('DO')">DO</button>
+      <button class="pbtn" data-p="pH" onclick="selectParam('pH')">pH</button>
+      <button class="pbtn" data-p="TAN" onclick="selectParam('TAN')">TAN</button>
+      <button class="pbtn" data-p="NO2" onclick="selectParam('NO2')">NO&#8322;</button>
+      <button class="pbtn" data-p="NO3" onclick="selectParam('NO3')">NO&#8323;</button>
+      <button class="pbtn" data-p="MW" onclick="selectParam('MW')">MW</button>
+    </div>
+    <div style="width:1px;height:22px;background:var(--bdr)"></div>
+    <div class="ctrl-grp">
+      <span class="ctrl-lbl">기간</span>
+      <button class="dbtn" data-d="3" onclick="selectDays(3)">3일</button>
+      <button class="dbtn active" data-d="7" onclick="selectDays(7)">7일</button>
+      <button class="dbtn" data-d="14" onclick="selectDays(14)">14일</button>
+      <button class="dbtn" data-d="30" onclick="selectDays(30)">30일</button>
+    </div>
+  </div>
+  <div class="charts-grid">
+    <div class="chart-col">
+      <div class="chart-col-hdr">
+        <span class="cc-title cc-A">Tank A</span>
+        <div class="cc-leg">
+          <span>&#9135; AM</span><span style="opacity:.6">&#183;&#183;&#183; PM</span>
+        </div>
+      </div>
+      <div id="chart-A" style="height:250px;padding:0 6px 8px"></div>
+    </div>
+    <div class="chart-col">
+      <div class="chart-col-hdr">
+        <span class="cc-title cc-B">Tank B</span>
+        <div class="cc-leg">
+          <span>&#9135; AM</span><span style="opacity:.6">&#183;&#183;&#183; PM</span>
+        </div>
+      </div>
+      <div id="chart-B" style="height:250px;padding:0 6px 8px"></div>
+    </div>
+    <div class="chart-col">
+      <div class="chart-col-hdr">
+        <span class="cc-title cc-C">Tank C</span>
+        <div class="cc-leg">
+          <span>&#9135; AM</span><span style="opacity:.6">&#183;&#183;&#183; PM</span>
+        </div>
+      </div>
+      <div id="chart-C" style="height:250px;padding:0 6px 8px"></div>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+const TANK_DATA    = {"A": [{"date": "2026-03-17", "DOC": 1, "AM": {"Temp": 26.3, "DO": 6.76, "pH": 7.78, "TAN": 0.072, "NO2": 0.037, "NO3": 5.4, "MW": null}, "PM": {"Temp": 27.0, "DO": 7.57, "pH": 8.0, "TAN": 0.079, "NO2": 0.051, "NO3": 2.7, "MW": null}}, {"date": "2026-03-18", "DOC": 2, "AM": {"Temp": 26.0, "DO": 6.99, "pH": 7.86, "TAN": 0.139, "NO2": 0.036, "NO3": 5.4, "MW": null}, "PM": {"Temp": 27.8, "DO": 7.23, "pH": 8.16, "TAN": 0.201, "NO2": 0.064, "NO3": 5.6, "MW": null}}, {"date": "2026-03-19", "DOC": 3, "AM": {"Temp": 26.4, "DO": 7.23, "pH": 7.79, "TAN": 0.541, "NO2": 0.07, "NO3": 4.0, "MW": null}, "PM": {"Temp": 27.8, "DO": 7.74, "pH": 8.03, "TAN": 0.18, "NO2": 0.045, "NO3": 4.4, "MW": null}}, {"date": "2026-03-20", "DOC": 4, "AM": {"Temp": 25.8, "DO": 6.61, "pH": 7.83, "TAN": 0.221, "NO2": 0.045, "NO3": 2.5, "MW": 0.02}, "PM": {"Temp": 27.4, "DO": 8.18, "pH": 8.17, "TAN": 0.232, "NO2": 0.041, "NO3": 2.9, "MW": null}}, {"date": "2026-03-21", "DOC": 5, "AM": {"Temp": 26.3, "DO": 6.53, "pH": 7.88, "TAN": 0.207, "NO2": 0.081, "NO3": 1.8, "MW": null}, "PM": {"Temp": 28.3, "DO": 8.16, "pH": 8.13, "TAN": 0.408, "NO2": 0.079, "NO3": 3.4, "MW": null}}, {"date": "2026-03-22", "DOC": 6, "AM": {"Temp": 26.5, "DO": 6.77, "pH": 7.91, "TAN": 0.27, "NO2": 0.083, "NO3": 9.8, "MW": null}, "PM": {"Temp": 27.9, "DO": 7.48, "pH": 8.0, "TAN": 0.292, "NO2": 0.056, "NO3": 6.8, "MW": null}}, {"date": "2026-03-23", "DOC": 7, "AM": {"Temp": 26.3, "DO": 6.68, "pH": 7.78, "TAN": 0.2, "NO2": 0.059, "NO3": 8.3, "MW": null}, "PM": {"Temp": 27.6, "DO": 7.69, "pH": 7.97, "TAN": 0.249, "NO2": 0.026, "NO3": 9.1, "MW": null}}, {"date": "2026-03-24", "DOC": 8, "AM": {"Temp": 25.8, "DO": 6.54, "pH": 7.75, "TAN": 0.25, "NO2": 0.106, "NO3": 7.4, "MW": null}, "PM": {"Temp": 27.7, "DO": 7.1, "pH": 8.13, "TAN": 0.266, "NO2": 0.061, "NO3": 9.8, "MW": null}}, {"date": "2026-03-25", "DOC": 9, "AM": {"Temp": 26.7, "DO": 6.73, "pH": 7.72, "TAN": 0.291, "NO2": 0.054, "NO3": 5.7, "MW": null}, "PM": {"Temp": 27.6, "DO": 7.5, "pH": 8.07, "TAN": 0.507, "NO2": 0.114, "NO3": 1.1, "MW": null}}, {"date": "2026-03-26", "DOC": 10, "AM": {"Temp": 26.9, "DO": 6.67, "pH": 7.82, "TAN": 0.289, "NO2": 0.072, "NO3": 11.5, "MW": null}, "PM": {"Temp": 27.7, "DO": 7.24, "pH": 7.9, "TAN": 0.513, "NO2": 0.094, "NO3": 7.5, "MW": null}}, {"date": "2026-03-27", "DOC": 11, "AM": {"Temp": 26.6, "DO": 7.29, "pH": 7.75, "TAN": 0.254, "NO2": 0.035, "NO3": 7.7, "MW": 0.12}, "PM": {"Temp": 27.1, "DO": 7.68, "pH": 8.02, "TAN": 0.312, "NO2": 0.091, "NO3": 5.0, "MW": null}}, {"date": "2026-03-28", "DOC": 12, "AM": {"Temp": 26.3, "DO": 6.78, "pH": 7.81, "TAN": 0.338, "NO2": 0.054, "NO3": 5.6, "MW": null}, "PM": {"Temp": 27.8, "DO": 6.8, "pH": 8.09, "TAN": 0.32, "NO2": 0.067, "NO3": 4.3, "MW": null}}, {"date": "2026-03-29", "DOC": 13, "AM": {"Temp": 26.1, "DO": 6.61, "pH": 7.7, "TAN": 0.244, "NO2": 0.084, "NO3": 5.6, "MW": null}, "PM": {"Temp": 27.6, "DO": 7.41, "pH": 7.94, "TAN": 0.257, "NO2": 0.137, "NO3": 3.3, "MW": null}}, {"date": "2026-03-30", "DOC": 14, "AM": {"Temp": 26.5, "DO": 6.86, "pH": 7.87, "TAN": 0.19, "NO2": 0.078, "NO3": 8.4, "MW": null}, "PM": {"Temp": 28.2, "DO": 7.14, "pH": 8.03, "TAN": 0.402, "NO2": 0.084, "NO3": 5.1, "MW": null}}, {"date": "2026-03-31", "DOC": 15, "AM": {"Temp": 26.3, "DO": 6.63, "pH": 7.76, "TAN": 0.561, "NO2": 0.081, "NO3": 8.2, "MW": null}, "PM": {"Temp": 27.6, "DO": 7.04, "pH": 7.93, "TAN": 0.66, "NO2": 0.056, "NO3": 8.4, "MW": null}}, {"date": "2026-04-01", "DOC": 16, "AM": {"Temp": 26.4, "DO": 7.27, "pH": 7.74, "TAN": 0.549, "NO2": 0.073, "NO3": 9.5, "MW": null}, "PM": {"Temp": 27.0, "DO": 7.18, "pH": 8.09, "TAN": 0.613, "NO2": 0.09, "NO3": 10.5, "MW": null}}, {"date": "2026-04-02", "DOC": 17, "AM": {"Temp": 27.0, "DO": 7.2, "pH": 7.98, "TAN": 0.453, "NO2": 0.104, "NO3": 8.9, "MW": null}, "PM": {"Temp": 27.7, "DO": 7.29, "pH": 7.96, "TAN": 0.428, "NO2": 0.076, "NO3": 6.3, "MW": null}}, {"date": "2026-04-03", "DOC": 18, "AM": {"Temp": 26.8, "DO": 6.47, "pH": 7.78, "TAN": 0.344, "NO2": 0.104, "NO3": 10.6, "MW": 0.32}, "PM": {"Temp": 27.3, "DO": 7.87, "pH": 7.81, "TAN": 0.76, "NO2": 0.082, "NO3": 11.7, "MW": null}}, {"date": "2026-04-04", "DOC": 19, "AM": {"Temp": 26.8, "DO": 6.63, "pH": 7.9, "TAN": 0.276, "NO2": 0.107, "NO3": 12.3, "MW": null}, "PM": {"Temp": 28.3, "DO": 7.32, "pH": 8.11, "TAN": 0.46, "NO2": 0.095, "NO3": 10.8, "MW": null}}, {"date": "2026-04-05", "DOC": 20, "AM": {"Temp": 26.4, "DO": 7.18, "pH": 7.75, "TAN": 0.347, "NO2": 0.142, "NO3": 8.1, "MW": null}, "PM": {"Temp": 27.7, "DO": 7.55, "pH": 8.01, "TAN": 0.403, "NO2": 0.088, "NO3": 8.6, "MW": null}}, {"date": "2026-04-06", "DOC": 21, "AM": {"Temp": 27.3, "DO": 7.06, "pH": 7.82, "TAN": 0.566, "NO2": 0.077, "NO3": 12.3, "MW": null}, "PM": {"Temp": 27.6, "DO": 6.97, "pH": 7.94, "TAN": 0.488, "NO2": 0.103, "NO3": 9.1, "MW": null}}, {"date": "2026-04-07", "DOC": 22, "AM": {"Temp": 26.9, "DO": 7.21, "pH": 7.89, "TAN": 0.494, "NO2": 0.086, "NO3": 9.3, "MW": null}, "PM": {"Temp": 28.0, "DO": 6.69, "pH": 8.02, "TAN": 0.433, "NO2": 0.075, "NO3": 9.8, "MW": null}}, {"date": "2026-04-08", "DOC": 23, "AM": {"Temp": 26.7, "DO": 6.23, "pH": 7.9, "TAN": 0.395, "NO2": 0.078, "NO3": 10.2, "MW": null}, "PM": {"Temp": 28.2, "DO": 7.25, "pH": 7.96, "TAN": 0.367, "NO2": 0.092, "NO3": 12.3, "MW": null}}, {"date": "2026-04-09", "DOC": 24, "AM": {"Temp": 26.9, "DO": 6.0, "pH": 7.74, "TAN": 0.591, "NO2": 0.091, "NO3": 16.2, "MW": null}, "PM": {"Temp": 27.8, "DO": 7.47, "pH": 7.99, "TAN": 0.52, "NO2": 0.108, "NO3": 10.6, "MW": null}}, {"date": "2026-04-10", "DOC": 25, "AM": {"Temp": 27.0, "DO": 6.29, "pH": 7.78, "TAN": 0.451, "NO2": 0.106, "NO3": 11.1, "MW": 0.62}, "PM": {"Temp": 28.0, "DO": 6.86, "pH": 8.11, "TAN": 0.543, "NO2": 0.108, "NO3": 13.4, "MW": null}}, {"date": "2026-04-11", "DOC": 26, "AM": {"Temp": 26.5, "DO": 6.51, "pH": 7.75, "TAN": 0.418, "NO2": 0.088, "NO3": 9.5, "MW": null}, "PM": {"Temp": 27.7, "DO": 7.43, "pH": 7.95, "TAN": 0.628, "NO2": 0.13, "NO3": 12.6, "MW": null}}, {"date": "2026-04-12", "DOC": 27, "AM": {"Temp": 26.6, "DO": 6.26, "pH": 7.71, "TAN": 0.537, "NO2": 0.142, "NO3": 12.7, "MW": null}, "PM": {"Temp": 28.3, "DO": 7.07, "pH": 8.0, "TAN": 0.44, "NO2": 0.16, "NO3": 10.7, "MW": null}}, {"date": "2026-04-13", "DOC": 28, "AM": {"Temp": 26.6, "DO": 6.83, "pH": 7.76, "TAN": 0.547, "NO2": 0.082, "NO3": 14.9, "MW": null}, "PM": {"Temp": 28.2, "DO": 7.46, "pH": 7.96, "TAN": 0.48, "NO2": 0.124, "NO3": 12.0, "MW": null}}, {"date": "2026-04-14", "DOC": 29, "AM": {"Temp": 26.6, "DO": 7.84, "pH": 7.76, "TAN": 0.686, "NO2": 0.093, "NO3": 14.3, "MW": null}, "PM": {"Temp": 27.3, "DO": 7.61, "pH": 8.05, "TAN": 0.591, "NO2": 0.108, "NO3": 14.9, "MW": null}}, {"date": "2026-04-15", "DOC": 30, "AM": {"Temp": 26.0, "DO": 7.34, "pH": 7.73, "TAN": 0.6, "NO2": 0.096, "NO3": 10.6, "MW": null}, "PM": {"Temp": 27.7, "DO": 7.45, "pH": 8.03, "TAN": 0.565, "NO2": 0.104, "NO3": 15.8, "MW": null}}, {"date": "2026-04-16", "DOC": 31, "AM": {"Temp": 26.4, "DO": 6.56, "pH": 7.75, "TAN": 0.645, "NO2": 0.088, "NO3": 14.2, "MW": null}, "PM": {"Temp": 28.0, "DO": 7.46, "pH": 7.9, "TAN": 0.605, "NO2": 0.092, "NO3": 15.2, "MW": null}}, {"date": "2026-04-17", "DOC": 32, "AM": {"Temp": 26.4, "DO": 6.86, "pH": 7.78, "TAN": 0.699, "NO2": 0.12, "NO3": 11.4, "MW": 1.07}, "PM": {"Temp": 27.8, "DO": 7.78, "pH": 8.01, "TAN": 0.542, "NO2": 0.133, "NO3": 9.4, "MW": null}}, {"date": "2026-04-18", "DOC": 33, "AM": {"Temp": 27.1, "DO": 6.21, "pH": 7.81, "TAN": 0.926, "NO2": 0.101, "NO3": 13.9, "MW": null}, "PM": {"Temp": 28.2, "DO": 7.33, "pH": 8.04, "TAN": 0.562, "NO2": 0.211, "NO3": 15.9, "MW": null}}, {"date": "2026-04-19", "DOC": 34, "AM": {"Temp": 26.9, "DO": 6.64, "pH": 7.66, "TAN": 0.684, "NO2": 0.162, "NO3": 16.7, "MW": null}, "PM": {"Temp": 27.5, "DO": 6.37, "pH": 7.97, "TAN": 0.838, "NO2": 0.104, "NO3": 13.8, "MW": null}}, {"date": "2026-04-20", "DOC": 35, "AM": {"Temp": 26.9, "DO": 6.57, "pH": 7.86, "TAN": 0.799, "NO2": 0.105, "NO3": 14.3, "MW": null}, "PM": {"Temp": 28.1, "DO": 7.84, "pH": 7.98, "TAN": 0.639, "NO2": 0.14, "NO3": 17.1, "MW": null}}], "B": [{"date": "2025-11-27", "DOC": 1, "AM": {"Temp": 26.3, "DO": 6.88, "pH": 7.78, "TAN": 0.24, "NO2": 0.047, "NO3": 0.5, "MW": null}, "PM": {"Temp": 27.7, "DO": 8.26, "pH": 8.05, "TAN": 0.303, "NO2": 0.056, "NO3": 2.1, "MW": null}}, {"date": "2025-11-28", "DOC": 2, "AM": {"Temp": 26.1, "DO": 6.86, "pH": 7.74, "TAN": 0.17, "NO2": 0.073, "NO3": 0.5, "MW": 0.01}, "PM": {"Temp": 27.5, "DO": 7.71, "pH": 7.95, "TAN": 0.054, "NO2": 0.05, "NO3": 6.3, "MW": null}}, {"date": "2025-11-29", "DOC": 3, "AM": {"Temp": 26.4, "DO": 7.38, "pH": 7.82, "TAN": 0.307, "NO2": 0.064, "NO3": 2.4, "MW": null}, "PM": {"Temp": 27.8, "DO": 7.38, "pH": 7.96, "TAN": 0.246, "NO2": 0.053, "NO3": 2.8, "MW": null}}, {"date": "2025-11-30", "DOC": 4, "AM": {"Temp": 26.1, "DO": 7.51, "pH": 7.87, "TAN": 0.271, "NO2": 0.064, "NO3": 3.3, "MW": null}, "PM": {"Temp": 27.3, "DO": 7.74, "pH": 8.01, "TAN": 0.207, "NO2": 0.048, "NO3": 10.6, "MW": null}}, {"date": "2025-12-01", "DOC": 5, "AM": {"Temp": 26.2, "DO": 6.68, "pH": 7.75, "TAN": 0.168, "NO2": 0.041, "NO3": 2.5, "MW": null}, "PM": {"Temp": 27.0, "DO": 7.58, "pH": 8.06, "TAN": 0.252, "NO2": 0.084, "NO3": 10.0, "MW": null}}, {"date": "2025-12-02", "DOC": 6, "AM": {"Temp": 27.2, "DO": 6.76, "pH": 7.66, "TAN": 0.199, "NO2": 0.043, "NO3": 6.6, "MW": null}, "PM": {"Temp": 27.8, "DO": 7.83, "pH": 7.95, "TAN": 0.145, "NO2": 0.059, "NO3": 2.5, "MW": null}}, {"date": "2025-12-03", "DOC": 7, "AM": {"Temp": 26.2, "DO": 6.51, "pH": 7.92, "TAN": 0.4, "NO2": 0.062, "NO3": 2.4, "MW": null}, "PM": {"Temp": 27.7, "DO": 6.87, "pH": 8.1, "TAN": 0.159, "NO2": 0.074, "NO3": 3.6, "MW": null}}, {"date": "2025-12-04", "DOC": 8, "AM": {"Temp": 26.6, "DO": 6.32, "pH": 7.91, "TAN": 0.576, "NO2": 0.062, "NO3": 10.8, "MW": null}, "PM": {"Temp": 27.0, "DO": 7.35, "pH": 8.02, "TAN": 0.12, "NO2": 0.063, "NO3": 4.1, "MW": null}}, {"date": "2025-12-05", "DOC": 9, "AM": {"Temp": 26.4, "DO": 7.05, "pH": 7.82, "TAN": 0.218, "NO2": 0.083, "NO3": 3.0, "MW": 0.08}, "PM": {"Temp": 28.3, "DO": 7.87, "pH": 8.0, "TAN": 0.271, "NO2": 0.059, "NO3": 8.4, "MW": null}}, {"date": "2025-12-06", "DOC": 10, "AM": {"Temp": 27.0, "DO": 6.95, "pH": 7.88, "TAN": 0.327, "NO2": 0.075, "NO3": 11.1, "MW": null}, "PM": {"Temp": 28.2, "DO": 7.94, "pH": 8.03, "TAN": 0.266, "NO2": 0.064, "NO3": 7.1, "MW": null}}, {"date": "2025-12-07", "DOC": 11, "AM": {"Temp": 26.5, "DO": 6.01, "pH": 7.85, "TAN": 0.172, "NO2": 0.071, "NO3": 4.7, "MW": null}, "PM": {"Temp": 27.7, "DO": 7.4, "pH": 7.95, "TAN": 0.76, "NO2": 0.052, "NO3": 12.1, "MW": null}}, {"date": "2025-12-08", "DOC": 12, "AM": {"Temp": 26.5, "DO": 6.9, "pH": 7.91, "TAN": 0.338, "NO2": 0.062, "NO3": 5.8, "MW": null}, "PM": {"Temp": 28.1, "DO": 7.08, "pH": 8.01, "TAN": 0.261, "NO2": 0.042, "NO3": 4.7, "MW": null}}, {"date": "2025-12-09", "DOC": 13, "AM": {"Temp": 26.2, "DO": 6.13, "pH": 7.82, "TAN": 0.367, "NO2": 0.091, "NO3": 10.0, "MW": null}, "PM": {"Temp": 27.2, "DO": 8.04, "pH": 7.96, "TAN": 0.192, "NO2": 0.062, "NO3": 6.5, "MW": null}}, {"date": "2025-12-10", "DOC": 14, "AM": {"Temp": 27.1, "DO": 6.79, "pH": 7.77, "TAN": 0.305, "NO2": 0.106, "NO3": 4.5, "MW": null}, "PM": {"Temp": 27.8, "DO": 7.66, "pH": 8.07, "TAN": 0.319, "NO2": 0.085, "NO3": 11.1, "MW": null}}, {"date": "2025-12-11", "DOC": 15, "AM": {"Temp": 26.7, "DO": 7.13, "pH": 7.85, "TAN": 0.299, "NO2": 0.104, "NO3": 4.1, "MW": null}, "PM": {"Temp": 28.4, "DO": 7.16, "pH": 8.01, "TAN": 0.377, "NO2": 0.084, "NO3": 5.8, "MW": null}}, {"date": "2025-12-12", "DOC": 16, "AM": {"Temp": 27.2, "DO": 6.33, "pH": 7.79, "TAN": 0.81, "NO2": 0.081, "NO3": 6.9, "MW": 0.25}, "PM": {"Temp": 28.7, "DO": 7.38, "pH": 8.02, "TAN": 0.493, "NO2": 0.074, "NO3": 6.5, "MW": null}}, {"date": "2025-12-13", "DOC": 17, "AM": {"Temp": 26.5, "DO": 6.44, "pH": 7.83, "TAN": 0.411, "NO2": 0.127, "NO3": 9.7, "MW": null}, "PM": {"Temp": 28.6, "DO": 7.68, "pH": 8.07, "TAN": 0.332, "NO2": 0.072, "NO3": 7.5, "MW": null}}, {"date": "2025-12-14", "DOC": 18, "AM": {"Temp": 26.5, "DO": 6.78, "pH": 7.92, "TAN": 0.421, "NO2": 0.109, "NO3": 7.6, "MW": null}, "PM": {"Temp": 27.2, "DO": 7.67, "pH": 7.94, "TAN": 0.405, "NO2": 0.096, "NO3": 5.3, "MW": null}}, {"date": "2025-12-15", "DOC": 19, "AM": {"Temp": 26.8, "DO": 6.65, "pH": 7.77, "TAN": 0.569, "NO2": 0.076, "NO3": 16.0, "MW": null}, "PM": {"Temp": 28.4, "DO": 7.75, "pH": 8.01, "TAN": 0.428, "NO2": 0.085, "NO3": 10.9, "MW": null}}, {"date": "2025-12-16", "DOC": 20, "AM": {"Temp": 26.5, "DO": 6.77, "pH": 7.86, "TAN": 0.508, "NO2": 0.11, "NO3": 11.2, "MW": null}, "PM": {"Temp": 28.2, "DO": 7.47, "pH": 7.94, "TAN": 0.389, "NO2": 0.086, "NO3": 9.6, "MW": null}}, {"date": "2025-12-17", "DOC": 21, "AM": {"Temp": 27.0, "DO": 6.75, "pH": 7.84, "TAN": 0.49, "NO2": 0.115, "NO3": 14.5, "MW": null}, "PM": {"Temp": 27.6, "DO": 7.81, "pH": 8.06, "TAN": 0.513, "NO2": 0.109, "NO3": 9.2, "MW": null}}, {"date": "2025-12-18", "DOC": 22, "AM": {"Temp": 26.6, "DO": 6.63, "pH": 7.83, "TAN": 0.603, "NO2": 0.111, "NO3": 16.0, "MW": null}, "PM": {"Temp": 28.4, "DO": 7.7, "pH": 8.09, "TAN": 0.579, "NO2": 0.095, "NO3": 11.8, "MW": null}}, {"date": "2025-12-19", "DOC": 23, "AM": {"Temp": 26.3, "DO": 7.08, "pH": 7.78, "TAN": 0.47, "NO2": 0.097, "NO3": 12.6, "MW": 0.55}, "PM": {"Temp": 28.4, "DO": 7.55, "pH": 7.96, "TAN": 0.581, "NO2": 0.158, "NO3": 7.4, "MW": null}}, {"date": "2025-12-20", "DOC": 24, "AM": {"Temp": 26.5, "DO": 5.74, "pH": 7.88, "TAN": 0.579, "NO2": 0.066, "NO3": 11.7, "MW": null}, "PM": {"Temp": 27.9, "DO": 7.71, "pH": 7.95, "TAN": 0.441, "NO2": 0.087, "NO3": 12.2, "MW": null}}, {"date": "2025-12-21", "DOC": 25, "AM": {"Temp": 26.8, "DO": 6.73, "pH": 7.87, "TAN": 0.464, "NO2": 0.074, "NO3": 13.4, "MW": null}, "PM": {"Temp": 27.9, "DO": 7.55, "pH": 7.93, "TAN": 0.498, "NO2": 0.103, "NO3": 14.5, "MW": null}}, {"date": "2025-12-22", "DOC": 26, "AM": {"Temp": 26.4, "DO": 6.49, "pH": 7.73, "TAN": 0.45, "NO2": 0.115, "NO3": 11.3, "MW": null}, "PM": {"Temp": 28.2, "DO": 7.54, "pH": 7.93, "TAN": 0.539, "NO2": 0.08, "NO3": 13.2, "MW": null}}, {"date": "2025-12-23", "DOC": 27, "AM": {"Temp": 26.7, "DO": 6.4, "pH": 7.77, "TAN": 0.583, "NO2": 0.114, "NO3": 9.4, "MW": null}, "PM": {"Temp": 28.1, "DO": 7.51, "pH": 7.98, "TAN": 0.51, "NO2": 0.1, "NO3": 15.6, "MW": null}}, {"date": "2025-12-24", "DOC": 28, "AM": {"Temp": 27.1, "DO": 6.7, "pH": 7.73, "TAN": 0.448, "NO2": 0.14, "NO3": 18.4, "MW": null}, "PM": {"Temp": 27.2, "DO": 7.3, "pH": 7.94, "TAN": 0.78, "NO2": 0.089, "NO3": 12.6, "MW": null}}, {"date": "2025-12-25", "DOC": 29, "AM": {"Temp": 26.9, "DO": 7.46, "pH": 7.87, "TAN": 0.864, "NO2": 0.12, "NO3": 11.5, "MW": null}, "PM": {"Temp": 28.3, "DO": 7.69, "pH": 8.1, "TAN": 0.568, "NO2": 0.089, "NO3": 8.8, "MW": null}}, {"date": "2025-12-26", "DOC": 30, "AM": {"Temp": 27.5, "DO": 6.46, "pH": 7.75, "TAN": 0.558, "NO2": 0.151, "NO3": 15.4, "MW": 0.87}, "PM": {"Temp": 27.9, "DO": 7.7, "pH": 8.08, "TAN": 0.733, "NO2": 0.125, "NO3": 16.7, "MW": null}}, {"date": "2025-12-27", "DOC": 31, "AM": {"Temp": 27.2, "DO": 6.18, "pH": 7.8, "TAN": 0.644, "NO2": 0.122, "NO3": 12.2, "MW": null}, "PM": {"Temp": 28.3, "DO": 7.02, "pH": 7.94, "TAN": 0.524, "NO2": 0.101, "NO3": 16.4, "MW": null}}, {"date": "2025-12-28", "DOC": 32, "AM": {"Temp": 26.7, "DO": 6.52, "pH": 7.73, "TAN": 0.686, "NO2": 0.115, "NO3": 12.8, "MW": null}, "PM": {"Temp": 28.3, "DO": 7.16, "pH": 8.0, "TAN": 0.52, "NO2": 0.09, "NO3": 16.2, "MW": null}}, {"date": "2025-12-29", "DOC": 33, "AM": {"Temp": 26.8, "DO": 5.95, "pH": 7.8, "TAN": 0.853, "NO2": 0.138, "NO3": 11.3, "MW": null}, "PM": {"Temp": 28.1, "DO": 7.07, "pH": 8.0, "TAN": 0.577, "NO2": 0.107, "NO3": 14.2, "MW": null}}, {"date": "2025-12-30", "DOC": 34, "AM": {"Temp": 26.7, "DO": 6.7, "pH": 7.78, "TAN": 0.543, "NO2": 0.128, "NO3": 15.0, "MW": null}, "PM": {"Temp": 28.3, "DO": 7.6, "pH": 8.04, "TAN": 0.762, "NO2": 0.101, "NO3": 16.9, "MW": null}}, {"date": "2025-12-31", "DOC": 35, "AM": {"Temp": 27.0, "DO": 6.45, "pH": 7.69, "TAN": 0.652, "NO2": 0.134, "NO3": 12.9, "MW": null}, "PM": {"Temp": 28.1, "DO": 8.0, "pH": 7.95, "TAN": 0.591, "NO2": 0.131, "NO3": 17.9, "MW": null}}, {"date": "2026-01-01", "DOC": 36, "AM": {"Temp": 25.9, "DO": 6.25, "pH": 7.79, "TAN": 0.567, "NO2": 0.105, "NO3": 20.3, "MW": null}, "PM": {"Temp": 28.0, "DO": 7.38, "pH": 8.04, "TAN": 0.689, "NO2": 0.141, "NO3": 13.1, "MW": null}}, {"date": "2026-01-02", "DOC": 37, "AM": {"Temp": 27.0, "DO": 6.74, "pH": 7.63, "TAN": 0.525, "NO2": 0.108, "NO3": 19.0, "MW": 1.44}, "PM": {"Temp": 27.8, "DO": 7.07, "pH": 7.9, "TAN": 0.764, "NO2": 0.113, "NO3": 11.8, "MW": null}}, {"date": "2026-01-03", "DOC": 38, "AM": {"Temp": 25.9, "DO": 7.09, "pH": 7.71, "TAN": 0.536, "NO2": 0.132, "NO3": 11.9, "MW": null}, "PM": {"Temp": 28.1, "DO": 7.24, "pH": 7.95, "TAN": 1.031, "NO2": 0.135, "NO3": 19.3, "MW": null}}, {"date": "2026-01-04", "DOC": 39, "AM": {"Temp": 27.0, "DO": 6.5, "pH": 7.85, "TAN": 0.633, "NO2": 0.112, "NO3": 18.2, "MW": null}, "PM": {"Temp": 28.0, "DO": 7.7, "pH": 8.04, "TAN": 0.895, "NO2": 0.092, "NO3": 17.7, "MW": null}}, {"date": "2026-01-05", "DOC": 40, "AM": {"Temp": 27.0, "DO": 6.29, "pH": 7.74, "TAN": 0.658, "NO2": 0.124, "NO3": 17.3, "MW": null}, "PM": {"Temp": 27.6, "DO": 7.22, "pH": 7.84, "TAN": 0.728, "NO2": 0.147, "NO3": 19.0, "MW": null}}, {"date": "2026-01-06", "DOC": 41, "AM": {"Temp": 26.8, "DO": 5.76, "pH": 7.78, "TAN": 0.62, "NO2": 0.124, "NO3": 17.7, "MW": null}, "PM": {"Temp": 27.9, "DO": 7.2, "pH": 7.87, "TAN": 0.602, "NO2": 0.162, "NO3": 14.1, "MW": null}}, {"date": "2026-01-07", "DOC": 42, "AM": {"Temp": 26.8, "DO": 6.23, "pH": 7.78, "TAN": 0.722, "NO2": 0.171, "NO3": 17.5, "MW": null}, "PM": {"Temp": 28.0, "DO": 6.94, "pH": 7.97, "TAN": 0.804, "NO2": 0.148, "NO3": 22.4, "MW": null}}, {"date": "2026-01-08", "DOC": 43, "AM": {"Temp": 27.1, "DO": 6.84, "pH": 7.75, "TAN": 0.771, "NO2": 0.131, "NO3": 16.9, "MW": null}, "PM": {"Temp": 27.6, "DO": 6.85, "pH": 7.94, "TAN": 0.609, "NO2": 0.127, "NO3": 16.8, "MW": null}}, {"date": "2026-01-09", "DOC": 44, "AM": {"Temp": 26.8, "DO": 6.01, "pH": 7.73, "TAN": 0.712, "NO2": 0.154, "NO3": 15.5, "MW": 1.85}, "PM": {"Temp": 28.3, "DO": 7.03, "pH": 8.02, "TAN": 0.748, "NO2": 0.133, "NO3": 22.4, "MW": null}}, {"date": "2026-01-10", "DOC": 45, "AM": {"Temp": 27.3, "DO": 6.43, "pH": 7.85, "TAN": 0.78, "NO2": 0.17, "NO3": 19.7, "MW": null}, "PM": {"Temp": 28.3, "DO": 7.96, "pH": 8.02, "TAN": 0.729, "NO2": 0.105, "NO3": 18.0, "MW": null}}, {"date": "2026-01-11", "DOC": 46, "AM": {"Temp": 27.1, "DO": 6.43, "pH": 7.75, "TAN": 0.736, "NO2": 0.124, "NO3": 19.5, "MW": null}, "PM": {"Temp": 27.5, "DO": 6.86, "pH": 7.92, "TAN": 0.793, "NO2": 0.127, "NO3": 23.6, "MW": null}}, {"date": "2026-01-12", "DOC": 47, "AM": {"Temp": 26.1, "DO": 6.19, "pH": 7.75, "TAN": 0.846, "NO2": 0.117, "NO3": 21.6, "MW": null}, "PM": {"Temp": 28.1, "DO": 6.68, "pH": 8.04, "TAN": 0.794, "NO2": 0.129, "NO3": 21.1, "MW": null}}, {"date": "2026-01-13", "DOC": 48, "AM": {"Temp": 26.4, "DO": 6.43, "pH": 7.73, "TAN": 0.828, "NO2": 0.144, "NO3": 18.3, "MW": null}, "PM": {"Temp": 28.4, "DO": 7.71, "pH": 7.92, "TAN": 0.916, "NO2": 0.149, "NO3": 23.1, "MW": null}}, {"date": "2026-01-14", "DOC": 49, "AM": {"Temp": 26.8, "DO": 6.18, "pH": 7.75, "TAN": 0.787, "NO2": 0.146, "NO3": 23.4, "MW": null}, "PM": {"Temp": 28.0, "DO": 7.31, "pH": 7.77, "TAN": 0.842, "NO2": 0.147, "NO3": 24.6, "MW": null}}, {"date": "2026-01-15", "DOC": 50, "AM": {"Temp": 26.9, "DO": 6.29, "pH": 7.64, "TAN": 0.794, "NO2": 0.126, "NO3": 20.6, "MW": null}, "PM": {"Temp": 28.2, "DO": 7.47, "pH": 7.97, "TAN": 0.895, "NO2": 0.119, "NO3": 17.3, "MW": null}}, {"date": "2026-01-16", "DOC": 51, "AM": {"Temp": 26.6, "DO": 6.16, "pH": 7.64, "TAN": 0.931, "NO2": 0.148, "NO3": 18.9, "MW": 2.63}, "PM": {"Temp": 28.0, "DO": 6.3, "pH": 7.99, "TAN": 0.829, "NO2": 0.128, "NO3": 20.7, "MW": null}}, {"date": "2026-01-17", "DOC": 52, "AM": {"Temp": 26.5, "DO": 6.52, "pH": 7.75, "TAN": 0.823, "NO2": 0.157, "NO3": 19.6, "MW": null}, "PM": {"Temp": 28.8, "DO": 7.25, "pH": 7.85, "TAN": 1.238, "NO2": 0.139, "NO3": 17.5, "MW": null}}, {"date": "2026-01-18", "DOC": 53, "AM": {"Temp": 27.1, "DO": 5.98, "pH": 7.73, "TAN": 0.926, "NO2": 0.164, "NO3": 19.0, "MW": null}, "PM": {"Temp": 28.2, "DO": 7.35, "pH": 7.93, "TAN": 0.83, "NO2": 0.2, "NO3": 19.2, "MW": null}}, {"date": "2026-01-19", "DOC": 54, "AM": {"Temp": 28.1, "DO": 6.19, "pH": 7.76, "TAN": 0.907, "NO2": 0.159, "NO3": 20.3, "MW": null}, "PM": {"Temp": 29.3, "DO": 6.91, "pH": 7.92, "TAN": 0.968, "NO2": 0.133, "NO3": 24.9, "MW": null}}, {"date": "2026-01-20", "DOC": 55, "AM": {"Temp": 27.0, "DO": 6.31, "pH": 7.68, "TAN": 0.838, "NO2": 0.14, "NO3": 25.5, "MW": null}, "PM": {"Temp": 28.7, "DO": 7.0, "pH": 7.83, "TAN": 0.965, "NO2": 0.149, "NO3": 21.9, "MW": null}}, {"date": "2026-01-21", "DOC": 56, "AM": {"Temp": 26.5, "DO": 6.11, "pH": 7.66, "TAN": 0.897, "NO2": 0.131, "NO3": 22.3, "MW": null}, "PM": {"Temp": 28.4, "DO": 6.99, "pH": 8.08, "TAN": 1.054, "NO2": 0.153, "NO3": 20.5, "MW": null}}, {"date": "2026-01-22", "DOC": 57, "AM": {"Temp": 26.7, "DO": 6.2, "pH": 7.72, "TAN": 1.012, "NO2": 0.142, "NO3": 22.3, "MW": null}, "PM": {"Temp": 28.2, "DO": 7.0, "pH": 7.98, "TAN": 0.836, "NO2": 0.2, "NO3": 21.9, "MW": null}}, {"date": "2026-01-23", "DOC": 58, "AM": {"Temp": 26.4, "DO": 5.92, "pH": 7.7, "TAN": 1.006, "NO2": 0.138, "NO3": 23.7, "MW": 3.44}, "PM": {"Temp": 27.8, "DO": 7.21, "pH": 7.96, "TAN": 0.903, "NO2": 0.21, "NO3": 26.3, "MW": null}}, {"date": "2026-01-24", "DOC": 59, "AM": {"Temp": 26.6, "DO": 6.45, "pH": 7.66, "TAN": 1.04, "NO2": 0.161, "NO3": 24.4, "MW": null}, "PM": {"Temp": 27.8, "DO": 7.46, "pH": 8.0, "TAN": 0.963, "NO2": 0.149, "NO3": 25.4, "MW": null}}, {"date": "2026-01-25", "DOC": 60, "AM": {"Temp": 26.7, "DO": 6.48, "pH": 7.69, "TAN": 1.215, "NO2": 0.18, "NO3": 26.0, "MW": null}, "PM": {"Temp": 28.3, "DO": 6.76, "pH": 7.88, "TAN": 1.169, "NO2": 0.152, "NO3": 24.1, "MW": null}}, {"date": "2026-01-26", "DOC": 61, "AM": {"Temp": 27.3, "DO": 6.34, "pH": 7.75, "TAN": 0.926, "NO2": 0.168, "NO3": 27.4, "MW": null}, "PM": {"Temp": 28.7, "DO": 6.99, "pH": 7.96, "TAN": 0.97, "NO2": 0.167, "NO3": 26.4, "MW": null}}, {"date": "2026-01-27", "DOC": 62, "AM": {"Temp": 27.4, "DO": 6.47, "pH": 7.75, "TAN": 0.988, "NO2": 0.222, "NO3": 28.2, "MW": null}, "PM": {"Temp": 28.0, "DO": 6.32, "pH": 7.9, "TAN": 1.06, "NO2": 0.164, "NO3": 29.4, "MW": null}}, {"date": "2026-01-28", "DOC": 63, "AM": {"Temp": 26.6, "DO": 6.31, "pH": 7.76, "TAN": 1.049, "NO2": 0.171, "NO3": 28.8, "MW": null}, "PM": {"Temp": 29.2, "DO": 7.64, "pH": 8.0, "TAN": 0.919, "NO2": 0.185, "NO3": 21.2, "MW": null}}, {"date": "2026-01-29", "DOC": 64, "AM": {"Temp": 27.2, "DO": 5.74, "pH": 7.75, "TAN": 0.994, "NO2": 0.176, "NO3": 24.1, "MW": null}, "PM": {"Temp": 28.2, "DO": 6.95, "pH": 7.93, "TAN": 1.011, "NO2": 0.151, "NO3": 23.2, "MW": null}}, {"date": "2026-01-30", "DOC": 65, "AM": {"Temp": 26.3, "DO": 5.83, "pH": 7.74, "TAN": 1.025, "NO2": 0.176, "NO3": 22.9, "MW": 4.45}, "PM": {"Temp": 28.2, "DO": 7.0, "pH": 7.89, "TAN": 1.055, "NO2": 0.174, "NO3": 28.2, "MW": null}}, {"date": "2026-01-31", "DOC": 66, "AM": {"Temp": 27.4, "DO": 6.27, "pH": 7.77, "TAN": 1.237, "NO2": 0.159, "NO3": 24.6, "MW": null}, "PM": {"Temp": 28.8, "DO": 6.66, "pH": 7.87, "TAN": 1.007, "NO2": 0.176, "NO3": 25.5, "MW": null}}, {"date": "2026-02-01", "DOC": 67, "AM": {"Temp": 27.1, "DO": 6.23, "pH": 7.75, "TAN": 1.201, "NO2": 0.163, "NO3": 24.1, "MW": null}, "PM": {"Temp": 28.6, "DO": 7.34, "pH": 7.95, "TAN": 1.064, "NO2": 0.181, "NO3": 28.2, "MW": null}}, {"date": "2026-02-02", "DOC": 68, "AM": {"Temp": 27.1, "DO": 6.22, "pH": 7.63, "TAN": 1.078, "NO2": 0.204, "NO3": 24.7, "MW": null}, "PM": {"Temp": 28.7, "DO": 6.79, "pH": 7.85, "TAN": 0.978, "NO2": 0.181, "NO3": 27.6, "MW": null}}, {"date": "2026-02-03", "DOC": 69, "AM": {"Temp": 27.9, "DO": 5.78, "pH": 7.73, "TAN": 1.022, "NO2": 0.184, "NO3": 32.3, "MW": null}, "PM": {"Temp": 27.8, "DO": 6.48, "pH": 8.01, "TAN": 1.072, "NO2": 0.156, "NO3": 28.6, "MW": null}}, {"date": "2026-02-04", "DOC": 70, "AM": {"Temp": 26.7, "DO": 5.63, "pH": 7.75, "TAN": 1.061, "NO2": 0.246, "NO3": 26.3, "MW": null}, "PM": {"Temp": 28.5, "DO": 7.03, "pH": 7.92, "TAN": 1.12, "NO2": 0.178, "NO3": 28.0, "MW": null}}, {"date": "2026-02-05", "DOC": 71, "AM": {"Temp": 27.3, "DO": 6.09, "pH": 7.61, "TAN": 1.105, "NO2": 0.188, "NO3": 28.5, "MW": null}, "PM": {"Temp": 27.7, "DO": 6.85, "pH": 7.87, "TAN": 1.156, "NO2": 0.168, "NO3": 23.2, "MW": null}}, {"date": "2026-02-06", "DOC": 72, "AM": {"Temp": 26.8, "DO": 6.18, "pH": 7.65, "TAN": 1.301, "NO2": 0.187, "NO3": 26.2, "MW": 5.24}, "PM": {"Temp": 28.2, "DO": 7.09, "pH": 7.87, "TAN": 1.122, "NO2": 0.165, "NO3": 29.4, "MW": null}}, {"date": "2026-02-07", "DOC": 73, "AM": {"Temp": 27.3, "DO": 5.82, "pH": 7.65, "TAN": 1.149, "NO2": 0.194, "NO3": 31.3, "MW": null}, "PM": {"Temp": 28.2, "DO": 6.47, "pH": 7.83, "TAN": 1.158, "NO2": 0.182, "NO3": 27.3, "MW": null}}, {"date": "2026-02-08", "DOC": 74, "AM": {"Temp": 26.5, "DO": 5.83, "pH": 7.69, "TAN": 1.199, "NO2": 0.189, "NO3": 32.8, "MW": null}, "PM": {"Temp": 28.6, "DO": 6.84, "pH": 7.9, "TAN": 1.25, "NO2": 0.203, "NO3": 30.4, "MW": null}}, {"date": "2026-02-09", "DOC": 75, "AM": {"Temp": 26.9, "DO": 6.15, "pH": 7.71, "TAN": 1.261, "NO2": 0.189, "NO3": 28.5, "MW": null}, "PM": {"Temp": 28.8, "DO": 6.94, "pH": 7.9, "TAN": 1.133, "NO2": 0.17, "NO3": 36.0, "MW": null}}, {"date": "2026-02-10", "DOC": 76, "AM": {"Temp": 27.4, "DO": 6.43, "pH": 7.66, "TAN": 1.072, "NO2": 0.194, "NO3": 34.1, "MW": null}, "PM": {"Temp": 28.0, "DO": 6.89, "pH": 7.89, "TAN": 1.238, "NO2": 0.188, "NO3": 28.0, "MW": null}}, {"date": "2026-02-11", "DOC": 77, "AM": {"Temp": 26.3, "DO": 6.26, "pH": 7.62, "TAN": 1.185, "NO2": 0.199, "NO3": 30.3, "MW": null}, "PM": {"Temp": 28.3, "DO": 7.07, "pH": 7.99, "TAN": 1.512, "NO2": 0.173, "NO3": 29.4, "MW": null}}, {"date": "2026-02-12", "DOC": 78, "AM": {"Temp": 27.1, "DO": 5.47, "pH": 7.75, "TAN": 1.204, "NO2": 0.21, "NO3": 30.8, "MW": null}, "PM": {"Temp": 28.5, "DO": 6.78, "pH": 7.89, "TAN": 1.192, "NO2": 0.177, "NO3": 28.0, "MW": null}}, {"date": "2026-02-13", "DOC": 79, "AM": {"Temp": 27.6, "DO": 6.05, "pH": 7.62, "TAN": 1.23, "NO2": 0.196, "NO3": 26.2, "MW": 6.01}, "PM": {"Temp": 28.7, "DO": 6.06, "pH": 7.85, "TAN": 1.197, "NO2": 0.206, "NO3": 33.3, "MW": null}}, {"date": "2026-02-14", "DOC": 80, "AM": {"Temp": 26.5, "DO": 5.61, "pH": 7.74, "TAN": 1.4, "NO2": 0.217, "NO3": 30.4, "MW": null}, "PM": {"Temp": 28.4, "DO": 7.01, "pH": 7.88, "TAN": 1.552, "NO2": 0.197, "NO3": 29.9, "MW": null}}, {"date": "2026-02-15", "DOC": 81, "AM": {"Temp": 27.3, "DO": 5.78, "pH": 7.64, "TAN": 1.253, "NO2": 0.237, "NO3": 30.5, "MW": null}, "PM": {"Temp": 28.7, "DO": 6.94, "pH": 7.99, "TAN": 1.255, "NO2": 0.223, "NO3": 39.1, "MW": null}}, {"date": "2026-02-16", "DOC": 82, "AM": {"Temp": 27.1, "DO": 6.17, "pH": 7.71, "TAN": 1.37, "NO2": 0.205, "NO3": 30.8, "MW": null}, "PM": {"Temp": 28.9, "DO": 6.2, "pH": 7.81, "TAN": 1.237, "NO2": 0.212, "NO3": 32.0, "MW": null}}, {"date": "2026-02-17", "DOC": 83, "AM": {"Temp": 27.2, "DO": 5.86, "pH": 7.6, "TAN": 1.366, "NO2": 0.207, "NO3": 31.1, "MW": null}, "PM": {"Temp": 27.8, "DO": 6.69, "pH": 7.78, "TAN": 1.29, "NO2": 0.22, "NO3": 33.7, "MW": null}}, {"date": "2026-02-18", "DOC": 84, "AM": {"Temp": 26.8, "DO": 6.03, "pH": 7.63, "TAN": 1.473, "NO2": 0.235, "NO3": 32.6, "MW": null}, "PM": {"Temp": 28.7, "DO": 6.4, "pH": 8.02, "TAN": 1.436, "NO2": 0.263, "NO3": 31.9, "MW": null}}, {"date": "2026-02-19", "DOC": 85, "AM": {"Temp": 27.0, "DO": 6.51, "pH": 7.71, "TAN": 1.148, "NO2": 0.207, "NO3": 33.6, "MW": null}, "PM": {"Temp": 28.5, "DO": 6.35, "pH": 7.89, "TAN": 1.328, "NO2": 0.227, "NO3": 32.6, "MW": null}}, {"date": "2026-02-20", "DOC": 86, "AM": {"Temp": 26.4, "DO": 6.32, "pH": 7.62, "TAN": 1.392, "NO2": 0.227, "NO3": 38.7, "MW": 7.19}, "PM": {"Temp": 28.3, "DO": 6.46, "pH": 7.71, "TAN": 1.417, "NO2": 0.227, "NO3": 35.1, "MW": null}}, {"date": "2026-02-21", "DOC": 87, "AM": {"Temp": 27.3, "DO": 6.45, "pH": 7.8, "TAN": 1.616, "NO2": 0.228, "NO3": 34.8, "MW": null}, "PM": {"Temp": 28.1, "DO": 6.85, "pH": 7.93, "TAN": 1.302, "NO2": 0.194, "NO3": 34.3, "MW": null}}, {"date": "2026-02-22", "DOC": 88, "AM": {"Temp": 27.2, "DO": 6.23, "pH": 7.6, "TAN": 1.462, "NO2": 0.259, "NO3": 34.5, "MW": null}, "PM": {"Temp": 28.5, "DO": 6.89, "pH": 7.92, "TAN": 1.368, "NO2": 0.285, "NO3": 33.4, "MW": null}}, {"date": "2026-02-23", "DOC": 89, "AM": {"Temp": 27.4, "DO": 5.84, "pH": 7.66, "TAN": 1.964, "NO2": 0.235, "NO3": 33.3, "MW": null}, "PM": {"Temp": 29.3, "DO": 6.42, "pH": 7.81, "TAN": 1.458, "NO2": 0.219, "NO3": 31.1, "MW": null}}, {"date": "2026-02-24", "DOC": 90, "AM": {"Temp": 27.5, "DO": 5.76, "pH": 7.61, "TAN": 1.547, "NO2": 0.198, "NO3": 37.6, "MW": null}, "PM": {"Temp": 28.5, "DO": 7.16, "pH": 7.94, "TAN": 1.347, "NO2": 0.224, "NO3": 33.9, "MW": null}}, {"date": "2026-02-25", "DOC": 91, "AM": {"Temp": 26.7, "DO": 5.75, "pH": 7.62, "TAN": 1.483, "NO2": 0.246, "NO3": 32.5, "MW": null}, "PM": {"Temp": 28.2, "DO": 6.83, "pH": 7.87, "TAN": 1.34, "NO2": 0.248, "NO3": 33.9, "MW": null}}, {"date": "2026-02-26", "DOC": 92, "AM": {"Temp": 27.3, "DO": 5.63, "pH": 7.57, "TAN": 1.485, "NO2": 0.22, "NO3": 36.0, "MW": null}, "PM": {"Temp": 28.7, "DO": 6.22, "pH": 7.86, "TAN": 1.506, "NO2": 0.252, "NO3": 33.2, "MW": null}}, {"date": "2026-02-27", "DOC": 93, "AM": {"Temp": 27.3, "DO": 5.92, "pH": 7.72, "TAN": 1.544, "NO2": 0.24, "NO3": 34.7, "MW": 8.45}, "PM": {"Temp": 28.1, "DO": 6.8, "pH": 7.83, "TAN": 1.629, "NO2": 0.217, "NO3": 34.6, "MW": null}}, {"date": "2026-02-28", "DOC": 94, "AM": {"Temp": 27.1, "DO": 5.73, "pH": 7.67, "TAN": 1.511, "NO2": 0.23, "NO3": 32.0, "MW": null}, "PM": {"Temp": 28.8, "DO": 6.4, "pH": 7.84, "TAN": 1.532, "NO2": 0.238, "NO3": 38.0, "MW": null}}, {"date": "2026-03-01", "DOC": 95, "AM": {"Temp": 27.1, "DO": 5.75, "pH": 7.75, "TAN": 1.704, "NO2": 0.24, "NO3": 35.8, "MW": null}, "PM": {"Temp": 28.2, "DO": 6.18, "pH": 7.86, "TAN": 1.489, "NO2": 0.275, "NO3": 35.6, "MW": null}}, {"date": "2026-03-02", "DOC": 96, "AM": {"Temp": 27.5, "DO": 6.22, "pH": 7.73, "TAN": 1.445, "NO2": 0.239, "NO3": 41.9, "MW": null}, "PM": {"Temp": 28.9, "DO": 5.88, "pH": 7.93, "TAN": 1.393, "NO2": 0.224, "NO3": 39.2, "MW": null}}, {"date": "2026-03-03", "DOC": 97, "AM": {"Temp": 26.8, "DO": 5.89, "pH": 7.59, "TAN": 1.533, "NO2": 0.235, "NO3": 36.7, "MW": null}, "PM": {"Temp": 29.2, "DO": 6.48, "pH": 7.84, "TAN": 1.514, "NO2": 0.291, "NO3": 39.5, "MW": null}}, {"date": "2026-03-04", "DOC": 98, "AM": {"Temp": 27.3, "DO": 5.63, "pH": 7.63, "TAN": 1.515, "NO2": 0.244, "NO3": 36.9, "MW": null}, "PM": {"Temp": 28.0, "DO": 6.33, "pH": 7.74, "TAN": 1.519, "NO2": 0.23, "NO3": 40.4, "MW": null}}, {"date": "2026-03-05", "DOC": 99, "AM": {"Temp": 27.9, "DO": 5.44, "pH": 7.57, "TAN": 1.364, "NO2": 0.234, "NO3": 40.2, "MW": null}, "PM": {"Temp": 28.4, "DO": 7.01, "pH": 7.89, "TAN": 1.617, "NO2": 0.236, "NO3": 37.9, "MW": null}}, {"date": "2026-03-06", "DOC": 100, "AM": {"Temp": 27.8, "DO": 6.43, "pH": 7.61, "TAN": 1.659, "NO2": 0.243, "NO3": 36.5, "MW": 10.44}, "PM": {"Temp": 28.3, "DO": 6.6, "pH": 7.82, "TAN": 1.391, "NO2": 0.274, "NO3": 41.2, "MW": null}}, {"date": "2026-03-07", "DOC": 101, "AM": {"Temp": 27.5, "DO": 6.06, "pH": 7.58, "TAN": 1.47, "NO2": 0.239, "NO3": 37.9, "MW": null}, "PM": {"Temp": 28.3, "DO": 6.31, "pH": 7.79, "TAN": 1.883, "NO2": 0.249, "NO3": 38.2, "MW": null}}, {"date": "2026-03-08", "DOC": 102, "AM": {"Temp": 27.4, "DO": 6.27, "pH": 7.63, "TAN": 1.544, "NO2": 0.278, "NO3": 39.3, "MW": null}, "PM": {"Temp": 28.5, "DO": 6.82, "pH": 7.92, "TAN": 1.482, "NO2": 0.25, "NO3": 39.2, "MW": null}}, {"date": "2026-03-09", "DOC": 103, "AM": {"Temp": 27.2, "DO": 6.31, "pH": 7.62, "TAN": 1.491, "NO2": 0.241, "NO3": 37.8, "MW": null}, "PM": {"Temp": 28.3, "DO": 6.15, "pH": 7.85, "TAN": 1.662, "NO2": 0.244, "NO3": 37.4, "MW": null}}, {"date": "2026-03-10", "DOC": 104, "AM": {"Temp": 27.3, "DO": 5.99, "pH": 7.57, "TAN": 1.521, "NO2": 0.245, "NO3": 41.8, "MW": null}, "PM": {"Temp": 28.1, "DO": 6.72, "pH": 7.87, "TAN": 1.61, "NO2": 0.241, "NO3": 38.2, "MW": null}}, {"date": "2026-03-11", "DOC": 105, "AM": {"Temp": 28.0, "DO": 5.44, "pH": 7.55, "TAN": 1.606, "NO2": 0.296, "NO3": 37.1, "MW": null}, "PM": {"Temp": 28.7, "DO": 6.78, "pH": 7.85, "TAN": 1.935, "NO2": 0.253, "NO3": 35.5, "MW": null}}, {"date": "2026-03-12", "DOC": 106, "AM": {"Temp": 27.7, "DO": 5.77, "pH": 7.63, "TAN": 2.068, "NO2": 0.247, "NO3": 39.8, "MW": null}, "PM": {"Temp": 28.7, "DO": 6.62, "pH": 7.78, "TAN": 1.507, "NO2": 0.244, "NO3": 39.0, "MW": null}}, {"date": "2026-03-13", "DOC": 107, "AM": {"Temp": 27.5, "DO": 5.39, "pH": 7.75, "TAN": 1.833, "NO2": 0.233, "NO3": 37.5, "MW": 11.44}, "PM": {"Temp": 28.4, "DO": 6.99, "pH": 7.85, "TAN": 1.852, "NO2": 0.236, "NO3": 42.3, "MW": null}}, {"date": "2026-03-14", "DOC": 108, "AM": {"Temp": 27.5, "DO": 5.08, "pH": 7.58, "TAN": 1.644, "NO2": 0.274, "NO3": 44.1, "MW": null}, "PM": {"Temp": 28.7, "DO": 6.13, "pH": 7.84, "TAN": 1.567, "NO2": 0.282, "NO3": 44.2, "MW": null}}, {"date": "2026-03-15", "DOC": 109, "AM": {"Temp": 28.1, "DO": 4.99, "pH": 7.55, "TAN": 1.699, "NO2": 0.303, "NO3": 40.6, "MW": null}, "PM": {"Temp": 28.7, "DO": 5.86, "pH": 7.85, "TAN": 1.663, "NO2": 0.275, "NO3": 40.4, "MW": null}}, {"date": "2026-03-16", "DOC": 110, "AM": {"Temp": 27.3, "DO": 5.63, "pH": 7.66, "TAN": 1.588, "NO2": 0.288, "NO3": 45.5, "MW": null}, "PM": {"Temp": 28.6, "DO": 6.17, "pH": 7.78, "TAN": 1.87, "NO2": 0.283, "NO3": 45.3, "MW": null}}, {"date": "2026-03-17", "DOC": 111, "AM": {"Temp": 26.9, "DO": 5.7, "pH": 7.58, "TAN": 1.922, "NO2": 0.257, "NO3": 40.4, "MW": null}, "PM": {"Temp": 29.3, "DO": 6.3, "pH": 7.9, "TAN": 1.611, "NO2": 0.246, "NO3": 44.0, "MW": null}}, {"date": "2026-03-18", "DOC": 112, "AM": {"Temp": 28.0, "DO": 6.03, "pH": 7.64, "TAN": 1.808, "NO2": 0.257, "NO3": 41.2, "MW": null}, "PM": {"Temp": 29.0, "DO": 6.38, "pH": 7.93, "TAN": 1.943, "NO2": 0.291, "NO3": 39.5, "MW": null}}, {"date": "2026-03-19", "DOC": 113, "AM": {"Temp": 27.3, "DO": 5.12, "pH": 7.67, "TAN": 1.907, "NO2": 0.309, "NO3": 43.3, "MW": null}, "PM": {"Temp": 28.2, "DO": 6.83, "pH": 7.95, "TAN": 1.714, "NO2": 0.287, "NO3": 41.3, "MW": null}}, {"date": "2026-03-20", "DOC": 114, "AM": {"Temp": 27.7, "DO": 5.98, "pH": 7.51, "TAN": 1.545, "NO2": 0.256, "NO3": 39.0, "MW": 13.66}, "PM": {"Temp": 29.1, "DO": 6.12, "pH": 7.76, "TAN": 1.709, "NO2": 0.264, "NO3": 39.2, "MW": null}}, {"date": "2026-03-21", "DOC": 115, "AM": {"Temp": 27.2, "DO": 5.29, "pH": 7.53, "TAN": 1.701, "NO2": 0.268, "NO3": 45.2, "MW": null}, "PM": {"Temp": 28.7, "DO": 7.12, "pH": 7.83, "TAN": 1.664, "NO2": 0.279, "NO3": 45.5, "MW": null}}, {"date": "2026-03-22", "DOC": 116, "AM": {"Temp": 27.3, "DO": 5.68, "pH": 7.69, "TAN": 1.757, "NO2": 0.303, "NO3": 45.6, "MW": null}, "PM": {"Temp": 27.9, "DO": 6.6, "pH": 7.79, "TAN": 1.77, "NO2": 0.311, "NO3": 46.1, "MW": null}}, {"date": "2026-03-23", "DOC": 117, "AM": {"Temp": 27.6, "DO": 5.69, "pH": 7.69, "TAN": 1.771, "NO2": 0.282, "NO3": 44.3, "MW": null}, "PM": {"Temp": 28.8, "DO": 6.5, "pH": 7.8, "TAN": 1.815, "NO2": 0.3, "NO3": 41.1, "MW": null}}, {"date": "2026-03-24", "DOC": 118, "AM": {"Temp": 28.0, "DO": 5.37, "pH": 7.59, "TAN": 1.853, "NO2": 0.329, "NO3": 44.0, "MW": null}, "PM": {"Temp": 28.9, "DO": 6.42, "pH": 7.85, "TAN": 1.816, "NO2": 0.278, "NO3": 47.7, "MW": null}}, {"date": "2026-03-25", "DOC": 119, "AM": {"Temp": 27.5, "DO": 5.32, "pH": 7.59, "TAN": 1.782, "NO2": 0.262, "NO3": 45.3, "MW": null}, "PM": {"Temp": 28.2, "DO": 6.11, "pH": 7.86, "TAN": 1.793, "NO2": 0.278, "NO3": 44.2, "MW": null}}, {"date": "2026-03-26", "DOC": 120, "AM": {"Temp": 27.4, "DO": 5.46, "pH": 7.6, "TAN": 1.904, "NO2": 0.256, "NO3": 47.1, "MW": null}, "PM": {"Temp": 28.7, "DO": 6.45, "pH": 7.83, "TAN": 1.755, "NO2": 0.27, "NO3": 38.1, "MW": null}}, {"date": "2026-03-27", "DOC": 121, "AM": {"Temp": 27.4, "DO": 5.26, "pH": 7.58, "TAN": 1.824, "NO2": 0.298, "NO3": 50.0, "MW": 14.82}, "PM": {"Temp": 29.2, "DO": 5.64, "pH": 7.71, "TAN": 1.766, "NO2": 0.28, "NO3": 43.8, "MW": null}}, {"date": "2026-03-28", "DOC": 122, "AM": {"Temp": 26.9, "DO": 5.09, "pH": 7.49, "TAN": 2.065, "NO2": 0.31, "NO3": 46.0, "MW": null}, "PM": {"Temp": 29.0, "DO": 6.11, "pH": 7.8, "TAN": 1.851, "NO2": 0.302, "NO3": 49.3, "MW": null}}, {"date": "2026-03-29", "DOC": 123, "AM": {"Temp": 27.3, "DO": 4.97, "pH": 7.59, "TAN": 1.851, "NO2": 0.279, "NO3": 48.9, "MW": null}, "PM": {"Temp": 28.5, "DO": 5.96, "pH": 7.76, "TAN": 1.903, "NO2": 0.283, "NO3": 47.4, "MW": null}}, {"date": "2026-03-30", "DOC": 124, "AM": {"Temp": 27.7, "DO": 4.86, "pH": 7.53, "TAN": 2.047, "NO2": 0.321, "NO3": 45.2, "MW": null}, "PM": {"Temp": 28.5, "DO": 5.99, "pH": 7.73, "TAN": 1.896, "NO2": 0.283, "NO3": 48.8, "MW": null}}, {"date": "2026-03-31", "DOC": 125, "AM": {"Temp": 27.8, "DO": 6.39, "pH": 7.4, "TAN": 1.892, "NO2": 0.301, "NO3": 51.1, "MW": null}, "PM": {"Temp": 28.3, "DO": 6.02, "pH": 7.8, "TAN": 1.768, "NO2": 0.289, "NO3": 50.3, "MW": null}}, {"date": "2026-04-01", "DOC": 126, "AM": {"Temp": 27.8, "DO": 4.75, "pH": 7.66, "TAN": 2.025, "NO2": 0.294, "NO3": 47.7, "MW": null}, "PM": {"Temp": 29.1, "DO": 6.57, "pH": 7.88, "TAN": 1.913, "NO2": 0.376, "NO3": 46.6, "MW": null}}, {"date": "2026-04-02", "DOC": 127, "AM": {"Temp": 28.3, "DO": 5.01, "pH": 7.53, "TAN": 1.956, "NO2": 0.318, "NO3": 47.2, "MW": null}, "PM": {"Temp": 28.2, "DO": 5.73, "pH": 7.81, "TAN": 1.929, "NO2": 0.289, "NO3": 49.9, "MW": null}}, {"date": "2026-04-03", "DOC": 128, "AM": {"Temp": 27.6, "DO": 5.0, "pH": 7.52, "TAN": 1.936, "NO2": 0.297, "NO3": 46.2, "MW": 17.22}, "PM": {"Temp": 28.8, "DO": 6.33, "pH": 7.75, "TAN": 1.941, "NO2": 0.284, "NO3": 54.9, "MW": null}}, {"date": "2026-04-04", "DOC": 129, "AM": {"Temp": 26.8, "DO": 5.7, "pH": 7.61, "TAN": 2.297, "NO2": 0.332, "NO3": 46.9, "MW": null}, "PM": {"Temp": 28.4, "DO": 6.45, "pH": 7.8, "TAN": 1.922, "NO2": 0.282, "NO3": 51.3, "MW": null}}, {"date": "2026-04-05", "DOC": 130, "AM": {"Temp": 27.9, "DO": 5.23, "pH": 7.6, "TAN": 1.869, "NO2": 0.299, "NO3": 43.2, "MW": null}, "PM": {"Temp": 28.9, "DO": 6.2, "pH": 7.71, "TAN": 2.178, "NO2": 0.282, "NO3": 49.8, "MW": null}}, {"date": "2026-04-06", "DOC": 131, "AM": {"Temp": 27.5, "DO": 5.03, "pH": 7.7, "TAN": 1.946, "NO2": 0.296, "NO3": 47.6, "MW": null}, "PM": {"Temp": 28.8, "DO": 6.04, "pH": 7.75, "TAN": 2.182, "NO2": 0.294, "NO3": 47.3, "MW": null}}, {"date": "2026-04-07", "DOC": 132, "AM": {"Temp": 27.7, "DO": 5.49, "pH": 7.49, "TAN": 1.89, "NO2": 0.305, "NO3": 51.8, "MW": null}, "PM": {"Temp": 28.3, "DO": 5.97, "pH": 7.63, "TAN": 2.045, "NO2": 0.284, "NO3": 46.3, "MW": null}}, {"date": "2026-04-08", "DOC": 133, "AM": {"Temp": 27.7, "DO": 5.16, "pH": 7.64, "TAN": 2.004, "NO2": 0.302, "NO3": 47.3, "MW": null}, "PM": {"Temp": 28.8, "DO": 5.82, "pH": 7.85, "TAN": 2.235, "NO2": 0.341, "NO3": 51.4, "MW": null}}, {"date": "2026-04-09", "DOC": 134, "AM": {"Temp": 27.5, "DO": 4.9, "pH": 7.55, "TAN": 1.978, "NO2": 0.318, "NO3": 54.4, "MW": null}, "PM": {"Temp": 28.8, "DO": 6.09, "pH": 7.78, "TAN": 1.89, "NO2": 0.333, "NO3": 44.9, "MW": null}}, {"date": "2026-04-10", "DOC": 135, "AM": {"Temp": 27.7, "DO": 5.33, "pH": 7.59, "TAN": 2.073, "NO2": 0.312, "NO3": 48.5, "MW": 18.81}, "PM": {"Temp": 29.0, "DO": 6.25, "pH": 7.74, "TAN": 1.983, "NO2": 0.297, "NO3": 45.4, "MW": null}}, {"date": "2026-04-11", "DOC": 136, "AM": {"Temp": 26.8, "DO": 5.11, "pH": 7.66, "TAN": 1.902, "NO2": 0.304, "NO3": 47.5, "MW": null}, "PM": {"Temp": 28.6, "DO": 5.79, "pH": 7.83, "TAN": 2.132, "NO2": 0.309, "NO3": 52.1, "MW": null}}, {"date": "2026-04-12", "DOC": 137, "AM": {"Temp": 27.0, "DO": 5.43, "pH": 7.45, "TAN": 2.018, "NO2": 0.328, "NO3": 53.4, "MW": null}, "PM": {"Temp": 28.3, "DO": 6.07, "pH": 7.86, "TAN": 2.004, "NO2": 0.312, "NO3": 55.1, "MW": null}}, {"date": "2026-04-13", "DOC": 138, "AM": {"Temp": 27.6, "DO": 4.8, "pH": 7.59, "TAN": 2.249, "NO2": 0.347, "NO3": 50.4, "MW": null}, "PM": {"Temp": 29.0, "DO": 6.06, "pH": 7.7, "TAN": 2.056, "NO2": 0.306, "NO3": 48.9, "MW": null}}, {"date": "2026-04-14", "DOC": 139, "AM": {"Temp": 27.7, "DO": 4.83, "pH": 7.73, "TAN": 2.144, "NO2": 0.411, "NO3": 52.9, "MW": null}, "PM": {"Temp": 28.0, "DO": 6.02, "pH": 7.77, "TAN": 2.041, "NO2": 0.302, "NO3": 53.5, "MW": null}}, {"date": "2026-04-15", "DOC": 140, "AM": {"Temp": 27.1, "DO": 4.97, "pH": 7.47, "TAN": 2.157, "NO2": 0.311, "NO3": 52.5, "MW": null}, "PM": {"Temp": 28.6, "DO": 6.48, "pH": 7.82, "TAN": 2.508, "NO2": 0.34, "NO3": 57.2, "MW": null}}, {"date": "2026-04-16", "DOC": 141, "AM": {"Temp": 28.2, "DO": 4.76, "pH": 7.5, "TAN": 2.076, "NO2": 0.28, "NO3": 51.6, "MW": null}, "PM": {"Temp": 29.1, "DO": 5.89, "pH": 7.68, "TAN": 2.091, "NO2": 0.366, "NO3": 56.9, "MW": null}}, {"date": "2026-04-17", "DOC": 142, "AM": {"Temp": 27.7, "DO": 5.33, "pH": 7.36, "TAN": 2.186, "NO2": 0.343, "NO3": 51.2, "MW": 19.15}, "PM": {"Temp": 29.2, "DO": 6.08, "pH": 7.74, "TAN": 2.156, "NO2": 0.371, "NO3": 50.7, "MW": null}}, {"date": "2026-04-18", "DOC": 143, "AM": {"Temp": 28.1, "DO": 5.23, "pH": 7.45, "TAN": 2.209, "NO2": 0.331, "NO3": 52.9, "MW": null}, "PM": {"Temp": 28.4, "DO": 5.84, "pH": 7.81, "TAN": 2.219, "NO2": 0.335, "NO3": 50.2, "MW": null}}, {"date": "2026-04-19", "DOC": 144, "AM": {"Temp": 27.1, "DO": 5.1, "pH": 7.48, "TAN": 2.346, "NO2": 0.332, "NO3": 54.5, "MW": null}, "PM": {"Temp": 29.2, "DO": 5.78, "pH": 7.78, "TAN": 2.192, "NO2": 0.315, "NO3": 49.1, "MW": null}}, {"date": "2026-04-20", "DOC": 145, "AM": {"Temp": 27.3, "DO": 4.65, "pH": 7.57, "TAN": 2.285, "NO2": 0.348, "NO3": 50.0, "MW": null}, "PM": {"Temp": 28.9, "DO": 5.86, "pH": 7.74, "TAN": 2.329, "NO2": 0.35, "NO3": 54.8, "MW": null}}], "C": [{"date": "2026-01-31", "DOC": 1, "AM": {"Temp": 26.4, "DO": 7.04, "pH": 7.74, "TAN": 0.234, "NO2": 0.037, "NO3": 2.0, "MW": null}, "PM": {"Temp": 28.4, "DO": 7.67, "pH": 8.0, "TAN": 0.128, "NO2": 0.048, "NO3": 2.7, "MW": null}}, {"date": "2026-02-01", "DOC": 2, "AM": {"Temp": 26.2, "DO": 6.87, "pH": 7.9, "TAN": 0.214, "NO2": 0.031, "NO3": 0.5, "MW": null}, "PM": {"Temp": 27.8, "DO": 7.75, "pH": 7.97, "TAN": 0.072, "NO2": 0.043, "NO3": 5.6, "MW": null}}, {"date": "2026-02-02", "DOC": 3, "AM": {"Temp": 27.2, "DO": 6.59, "pH": 7.89, "TAN": 0.139, "NO2": 0.097, "NO3": 5.4, "MW": null}, "PM": {"Temp": 27.9, "DO": 7.73, "pH": 8.05, "TAN": 0.703, "NO2": 0.033, "NO3": 9.0, "MW": null}}, {"date": "2026-02-03", "DOC": 4, "AM": {"Temp": 26.4, "DO": 6.91, "pH": 7.82, "TAN": 0.284, "NO2": 0.049, "NO3": 0.6, "MW": null}, "PM": {"Temp": 27.7, "DO": 7.39, "pH": 8.03, "TAN": 0.17, "NO2": 0.077, "NO3": 0.9, "MW": null}}, {"date": "2026-02-04", "DOC": 5, "AM": {"Temp": 26.9, "DO": 6.95, "pH": 7.79, "TAN": 0.224, "NO2": 0.108, "NO3": 2.7, "MW": null}, "PM": {"Temp": 27.9, "DO": 7.82, "pH": 8.14, "TAN": 0.165, "NO2": 0.045, "NO3": 7.5, "MW": null}}, {"date": "2026-02-05", "DOC": 6, "AM": {"Temp": 26.2, "DO": 6.68, "pH": 7.76, "TAN": 0.502, "NO2": 0.058, "NO3": 8.0, "MW": null}, "PM": {"Temp": 28.2, "DO": 7.31, "pH": 7.9, "TAN": 0.17, "NO2": 0.043, "NO3": 4.7, "MW": null}}, {"date": "2026-02-06", "DOC": 7, "AM": {"Temp": 27.0, "DO": 6.73, "pH": 7.74, "TAN": 0.399, "NO2": 0.088, "NO3": 4.3, "MW": 0.05}, "PM": {"Temp": 28.3, "DO": 7.33, "pH": 8.08, "TAN": 0.375, "NO2": 0.056, "NO3": 1.7, "MW": null}}, {"date": "2026-02-07", "DOC": 8, "AM": {"Temp": 26.6, "DO": 6.89, "pH": 7.83, "TAN": 0.335, "NO2": 0.072, "NO3": 8.6, "MW": null}, "PM": {"Temp": 27.3, "DO": 7.51, "pH": 7.96, "TAN": 0.238, "NO2": 0.088, "NO3": 3.3, "MW": null}}, {"date": "2026-02-08", "DOC": 9, "AM": {"Temp": 26.5, "DO": 6.29, "pH": 7.93, "TAN": 0.194, "NO2": 0.082, "NO3": 8.0, "MW": null}, "PM": {"Temp": 27.5, "DO": 7.85, "pH": 8.03, "TAN": 0.319, "NO2": 0.074, "NO3": 3.0, "MW": null}}, {"date": "2026-02-09", "DOC": 10, "AM": {"Temp": 26.8, "DO": 6.77, "pH": 7.92, "TAN": 0.211, "NO2": 0.067, "NO3": 1.6, "MW": null}, "PM": {"Temp": 27.5, "DO": 7.29, "pH": 8.04, "TAN": 0.308, "NO2": 0.07, "NO3": 4.7, "MW": null}}, {"date": "2026-02-10", "DOC": 11, "AM": {"Temp": 27.2, "DO": 6.86, "pH": 7.81, "TAN": 0.38, "NO2": 0.067, "NO3": 4.1, "MW": null}, "PM": {"Temp": 28.1, "DO": 7.27, "pH": 7.99, "TAN": 0.312, "NO2": 0.055, "NO3": 6.7, "MW": null}}, {"date": "2026-02-11", "DOC": 12, "AM": {"Temp": 26.7, "DO": 7.0, "pH": 7.78, "TAN": 0.672, "NO2": 0.078, "NO3": 8.4, "MW": null}, "PM": {"Temp": 27.9, "DO": 7.85, "pH": 7.93, "TAN": 0.201, "NO2": 0.048, "NO3": 6.5, "MW": null}}, {"date": "2026-02-12", "DOC": 13, "AM": {"Temp": 26.5, "DO": 6.54, "pH": 7.86, "TAN": 0.515, "NO2": 0.058, "NO3": 8.0, "MW": null}, "PM": {"Temp": 27.3, "DO": 6.92, "pH": 8.0, "TAN": 0.378, "NO2": 0.065, "NO3": 6.9, "MW": null}}, {"date": "2026-02-13", "DOC": 14, "AM": {"Temp": 26.6, "DO": 6.3, "pH": 7.77, "TAN": 0.247, "NO2": 0.056, "NO3": 5.5, "MW": 0.21}, "PM": {"Temp": 27.3, "DO": 6.97, "pH": 8.09, "TAN": 0.283, "NO2": 0.085, "NO3": 4.8, "MW": null}}, {"date": "2026-02-14", "DOC": 15, "AM": {"Temp": 27.0, "DO": 6.84, "pH": 7.8, "TAN": 0.207, "NO2": 0.089, "NO3": 13.1, "MW": null}, "PM": {"Temp": 28.2, "DO": 7.75, "pH": 8.01, "TAN": 0.304, "NO2": 0.076, "NO3": 7.9, "MW": null}}, {"date": "2026-02-15", "DOC": 16, "AM": {"Temp": 26.7, "DO": 5.92, "pH": 7.8, "TAN": 0.305, "NO2": 0.105, "NO3": 4.5, "MW": null}, "PM": {"Temp": 27.5, "DO": 7.66, "pH": 7.97, "TAN": 0.389, "NO2": 0.104, "NO3": 9.9, "MW": null}}, {"date": "2026-02-16", "DOC": 17, "AM": {"Temp": 27.1, "DO": 6.23, "pH": 7.79, "TAN": 0.406, "NO2": 0.087, "NO3": 11.4, "MW": null}, "PM": {"Temp": 27.8, "DO": 7.63, "pH": 8.03, "TAN": 0.413, "NO2": 0.077, "NO3": 6.2, "MW": null}}, {"date": "2026-02-17", "DOC": 18, "AM": {"Temp": 27.3, "DO": 6.88, "pH": 7.84, "TAN": 0.304, "NO2": 0.086, "NO3": 10.1, "MW": null}, "PM": {"Temp": 27.5, "DO": 7.81, "pH": 8.09, "TAN": 0.362, "NO2": 0.072, "NO3": 11.8, "MW": null}}, {"date": "2026-02-18", "DOC": 19, "AM": {"Temp": 26.6, "DO": 6.49, "pH": 7.86, "TAN": 0.442, "NO2": 0.087, "NO3": 8.3, "MW": null}, "PM": {"Temp": 27.6, "DO": 7.67, "pH": 7.96, "TAN": 0.579, "NO2": 0.073, "NO3": 9.6, "MW": null}}, {"date": "2026-02-19", "DOC": 20, "AM": {"Temp": 25.9, "DO": 6.53, "pH": 7.77, "TAN": 0.647, "NO2": 0.093, "NO3": 10.3, "MW": null}, "PM": {"Temp": 27.4, "DO": 7.24, "pH": 8.01, "TAN": 0.612, "NO2": 0.071, "NO3": 9.1, "MW": null}}, {"date": "2026-02-20", "DOC": 21, "AM": {"Temp": 26.8, "DO": 6.73, "pH": 7.75, "TAN": 0.527, "NO2": 0.09, "NO3": 9.2, "MW": 0.43}, "PM": {"Temp": 27.1, "DO": 7.16, "pH": 7.96, "TAN": 0.512, "NO2": 0.075, "NO3": 10.7, "MW": null}}, {"date": "2026-02-21", "DOC": 22, "AM": {"Temp": 26.4, "DO": 6.44, "pH": 7.72, "TAN": 0.348, "NO2": 0.088, "NO3": 11.7, "MW": null}, "PM": {"Temp": 27.9, "DO": 7.03, "pH": 8.04, "TAN": 0.671, "NO2": 0.091, "NO3": 9.8, "MW": null}}, {"date": "2026-02-22", "DOC": 23, "AM": {"Temp": 26.7, "DO": 6.26, "pH": 7.78, "TAN": 0.446, "NO2": 0.104, "NO3": 10.6, "MW": null}, "PM": {"Temp": 28.6, "DO": 7.28, "pH": 8.07, "TAN": 0.607, "NO2": 0.131, "NO3": 10.1, "MW": null}}, {"date": "2026-02-23", "DOC": 24, "AM": {"Temp": 26.7, "DO": 6.94, "pH": 7.8, "TAN": 0.859, "NO2": 0.143, "NO3": 8.6, "MW": null}, "PM": {"Temp": 27.6, "DO": 7.08, "pH": 8.08, "TAN": 0.527, "NO2": 0.08, "NO3": 9.3, "MW": null}}, {"date": "2026-02-24", "DOC": 25, "AM": {"Temp": 26.7, "DO": 6.6, "pH": 7.82, "TAN": 1.059, "NO2": 0.14, "NO3": 14.1, "MW": null}, "PM": {"Temp": 28.0, "DO": 7.02, "pH": 8.16, "TAN": 0.666, "NO2": 0.105, "NO3": 13.6, "MW": null}}, {"date": "2026-02-25", "DOC": 26, "AM": {"Temp": 27.1, "DO": 6.15, "pH": 7.67, "TAN": 0.529, "NO2": 0.088, "NO3": 15.3, "MW": null}, "PM": {"Temp": 27.2, "DO": 7.18, "pH": 7.98, "TAN": 0.507, "NO2": 0.075, "NO3": 8.5, "MW": null}}, {"date": "2026-02-26", "DOC": 27, "AM": {"Temp": 27.1, "DO": 6.85, "pH": 7.81, "TAN": 0.613, "NO2": 0.154, "NO3": 12.6, "MW": null}, "PM": {"Temp": 28.6, "DO": 6.75, "pH": 7.94, "TAN": 0.516, "NO2": 0.084, "NO3": 10.7, "MW": null}}, {"date": "2026-02-27", "DOC": 28, "AM": {"Temp": 26.8, "DO": 6.79, "pH": 7.79, "TAN": 0.504, "NO2": 0.15, "NO3": 10.0, "MW": 0.76}, "PM": {"Temp": 28.1, "DO": 7.09, "pH": 8.11, "TAN": 0.464, "NO2": 0.133, "NO3": 14.9, "MW": null}}, {"date": "2026-02-28", "DOC": 29, "AM": {"Temp": 26.2, "DO": 6.27, "pH": 7.79, "TAN": 0.674, "NO2": 0.1, "NO3": 16.7, "MW": null}, "PM": {"Temp": 28.5, "DO": 7.56, "pH": 7.98, "TAN": 0.554, "NO2": 0.12, "NO3": 14.1, "MW": null}}, {"date": "2026-03-01", "DOC": 30, "AM": {"Temp": 27.0, "DO": 6.71, "pH": 7.81, "TAN": 0.659, "NO2": 0.085, "NO3": 14.8, "MW": null}, "PM": {"Temp": 27.8, "DO": 7.17, "pH": 7.99, "TAN": 0.54, "NO2": 0.112, "NO3": 16.4, "MW": null}}, {"date": "2026-03-02", "DOC": 31, "AM": {"Temp": 26.9, "DO": 6.99, "pH": 7.99, "TAN": 0.659, "NO2": 0.151, "NO3": 5.2, "MW": null}, "PM": {"Temp": 28.5, "DO": 7.52, "pH": 7.98, "TAN": 0.607, "NO2": 0.1, "NO3": 11.7, "MW": null}}, {"date": "2026-03-03", "DOC": 32, "AM": {"Temp": 26.9, "DO": 6.26, "pH": 7.78, "TAN": 0.559, "NO2": 0.105, "NO3": 18.0, "MW": null}, "PM": {"Temp": 27.5, "DO": 7.23, "pH": 7.99, "TAN": 0.947, "NO2": 0.11, "NO3": 15.4, "MW": null}}, {"date": "2026-03-04", "DOC": 33, "AM": {"Temp": 27.0, "DO": 6.71, "pH": 7.75, "TAN": 0.617, "NO2": 0.101, "NO3": 13.1, "MW": null}, "PM": {"Temp": 28.3, "DO": 7.29, "pH": 7.93, "TAN": 0.644, "NO2": 0.103, "NO3": 13.1, "MW": null}}, {"date": "2026-03-05", "DOC": 34, "AM": {"Temp": 26.9, "DO": 6.34, "pH": 7.81, "TAN": 0.802, "NO2": 0.11, "NO3": 14.1, "MW": null}, "PM": {"Temp": 27.7, "DO": 6.97, "pH": 7.88, "TAN": 0.616, "NO2": 0.158, "NO3": 17.4, "MW": null}}, {"date": "2026-03-06", "DOC": 35, "AM": {"Temp": 27.3, "DO": 6.5, "pH": 7.66, "TAN": 0.685, "NO2": 0.136, "NO3": 19.9, "MW": 1.21}, "PM": {"Temp": 27.9, "DO": 7.21, "pH": 8.06, "TAN": 0.694, "NO2": 0.11, "NO3": 12.4, "MW": null}}, {"date": "2026-03-07", "DOC": 36, "AM": {"Temp": 26.4, "DO": 6.34, "pH": 7.76, "TAN": 1.318, "NO2": 0.111, "NO3": 17.5, "MW": null}, "PM": {"Temp": 28.3, "DO": 7.21, "pH": 8.01, "TAN": 0.926, "NO2": 0.108, "NO3": 17.5, "MW": null}}, {"date": "2026-03-08", "DOC": 37, "AM": {"Temp": 27.0, "DO": 6.16, "pH": 7.74, "TAN": 0.642, "NO2": 0.124, "NO3": 13.5, "MW": null}, "PM": {"Temp": 28.1, "DO": 7.51, "pH": 7.95, "TAN": 0.574, "NO2": 0.145, "NO3": 13.1, "MW": null}}, {"date": "2026-03-09", "DOC": 38, "AM": {"Temp": 27.0, "DO": 6.46, "pH": 7.72, "TAN": 0.598, "NO2": 0.198, "NO3": 17.4, "MW": null}, "PM": {"Temp": 28.0, "DO": 7.38, "pH": 7.97, "TAN": 0.625, "NO2": 0.15, "NO3": 15.8, "MW": null}}, {"date": "2026-03-10", "DOC": 39, "AM": {"Temp": 25.9, "DO": 5.98, "pH": 7.85, "TAN": 0.651, "NO2": 0.115, "NO3": 15.9, "MW": null}, "PM": {"Temp": 27.9, "DO": 7.53, "pH": 7.9, "TAN": 0.686, "NO2": 0.146, "NO3": 13.3, "MW": null}}, {"date": "2026-03-11", "DOC": 40, "AM": {"Temp": 26.4, "DO": 6.9, "pH": 7.77, "TAN": 0.812, "NO2": 0.122, "NO3": 11.3, "MW": null}, "PM": {"Temp": 27.9, "DO": 7.51, "pH": 8.07, "TAN": 0.771, "NO2": 0.117, "NO3": 16.6, "MW": null}}, {"date": "2026-03-12", "DOC": 41, "AM": {"Temp": 27.1, "DO": 6.4, "pH": 7.81, "TAN": 1.485, "NO2": 0.143, "NO3": 14.0, "MW": null}, "PM": {"Temp": 28.5, "DO": 7.61, "pH": 7.89, "TAN": 0.659, "NO2": 0.138, "NO3": 14.3, "MW": null}}, {"date": "2026-03-13", "DOC": 42, "AM": {"Temp": 26.6, "DO": 6.24, "pH": 7.59, "TAN": 0.711, "NO2": 0.128, "NO3": 16.9, "MW": 1.71}, "PM": {"Temp": 28.1, "DO": 6.94, "pH": 7.88, "TAN": 0.759, "NO2": 0.13, "NO3": 20.2, "MW": null}}, {"date": "2026-03-14", "DOC": 43, "AM": {"Temp": 26.3, "DO": 6.15, "pH": 7.73, "TAN": 0.692, "NO2": 0.133, "NO3": 21.0, "MW": null}, "PM": {"Temp": 28.2, "DO": 6.78, "pH": 7.99, "TAN": 0.723, "NO2": 0.11, "NO3": 16.8, "MW": null}}, {"date": "2026-03-15", "DOC": 44, "AM": {"Temp": 26.8, "DO": 6.56, "pH": 7.82, "TAN": 0.736, "NO2": 0.126, "NO3": 16.6, "MW": null}, "PM": {"Temp": 28.4, "DO": 6.97, "pH": 7.98, "TAN": 0.727, "NO2": 0.141, "NO3": 13.8, "MW": null}}, {"date": "2026-03-16", "DOC": 45, "AM": {"Temp": 26.9, "DO": 6.17, "pH": 7.76, "TAN": 0.851, "NO2": 0.162, "NO3": 16.7, "MW": null}, "PM": {"Temp": 27.7, "DO": 6.88, "pH": 7.93, "TAN": 0.737, "NO2": 0.143, "NO3": 22.2, "MW": null}}, {"date": "2026-03-17", "DOC": 46, "AM": {"Temp": 26.7, "DO": 6.84, "pH": 7.82, "TAN": 0.754, "NO2": 0.14, "NO3": 23.2, "MW": null}, "PM": {"Temp": 28.1, "DO": 7.38, "pH": 8.04, "TAN": 0.728, "NO2": 0.126, "NO3": 17.1, "MW": null}}, {"date": "2026-03-18", "DOC": 47, "AM": {"Temp": 26.8, "DO": 5.98, "pH": 7.66, "TAN": 0.791, "NO2": 0.142, "NO3": 16.8, "MW": null}, "PM": {"Temp": 27.9, "DO": 6.98, "pH": 8.04, "TAN": 1.117, "NO2": 0.17, "NO3": 14.3, "MW": null}}, {"date": "2026-03-19", "DOC": 48, "AM": {"Temp": 26.3, "DO": 6.21, "pH": 7.79, "TAN": 0.931, "NO2": 0.149, "NO3": 15.6, "MW": null}, "PM": {"Temp": 27.9, "DO": 6.97, "pH": 7.94, "TAN": 0.842, "NO2": 0.15, "NO3": 22.4, "MW": null}}, {"date": "2026-03-20", "DOC": 49, "AM": {"Temp": 26.5, "DO": 5.47, "pH": 7.73, "TAN": 0.813, "NO2": 0.127, "NO3": 24.0, "MW": 2.32}, "PM": {"Temp": 27.7, "DO": 7.12, "pH": 7.86, "TAN": 0.807, "NO2": 0.123, "NO3": 21.8, "MW": null}}, {"date": "2026-03-21", "DOC": 50, "AM": {"Temp": 26.6, "DO": 6.71, "pH": 7.76, "TAN": 0.85, "NO2": 0.158, "NO3": 21.2, "MW": null}, "PM": {"Temp": 27.9, "DO": 6.7, "pH": 8.07, "TAN": 0.804, "NO2": 0.148, "NO3": 18.4, "MW": null}}, {"date": "2026-03-22", "DOC": 51, "AM": {"Temp": 27.1, "DO": 6.83, "pH": 7.74, "TAN": 1.04, "NO2": 0.115, "NO3": 25.9, "MW": null}, "PM": {"Temp": 27.3, "DO": 7.26, "pH": 7.95, "TAN": 1.278, "NO2": 0.146, "NO3": 20.0, "MW": null}}, {"date": "2026-03-23", "DOC": 52, "AM": {"Temp": 27.0, "DO": 6.1, "pH": 7.69, "TAN": 0.795, "NO2": 0.162, "NO3": 20.7, "MW": null}, "PM": {"Temp": 28.4, "DO": 6.93, "pH": 8.01, "TAN": 0.848, "NO2": 0.194, "NO3": 20.2, "MW": null}}, {"date": "2026-03-24", "DOC": 53, "AM": {"Temp": 27.2, "DO": 5.81, "pH": 7.61, "TAN": 0.933, "NO2": 0.155, "NO3": 18.8, "MW": null}, "PM": {"Temp": 28.8, "DO": 7.23, "pH": 7.89, "TAN": 0.925, "NO2": 0.154, "NO3": 17.9, "MW": null}}, {"date": "2026-03-25", "DOC": 54, "AM": {"Temp": 27.2, "DO": 6.21, "pH": 7.77, "TAN": 0.976, "NO2": 0.149, "NO3": 30.2, "MW": null}, "PM": {"Temp": 28.1, "DO": 7.17, "pH": 7.89, "TAN": 0.841, "NO2": 0.126, "NO3": 18.9, "MW": null}}, {"date": "2026-03-26", "DOC": 55, "AM": {"Temp": 26.9, "DO": 6.27, "pH": 7.63, "TAN": 1.025, "NO2": 0.144, "NO3": 22.0, "MW": null}, "PM": {"Temp": 28.2, "DO": 6.75, "pH": 8.02, "TAN": 1.029, "NO2": 0.151, "NO3": 25.4, "MW": null}}, {"date": "2026-03-27", "DOC": 56, "AM": {"Temp": 27.1, "DO": 6.45, "pH": 7.79, "TAN": 0.919, "NO2": 0.153, "NO3": 21.2, "MW": 3.21}, "PM": {"Temp": 28.1, "DO": 6.97, "pH": 7.95, "TAN": 0.936, "NO2": 0.145, "NO3": 18.6, "MW": null}}, {"date": "2026-03-28", "DOC": 57, "AM": {"Temp": 26.9, "DO": 5.58, "pH": 7.73, "TAN": 0.937, "NO2": 0.149, "NO3": 22.4, "MW": null}, "PM": {"Temp": 27.7, "DO": 7.03, "pH": 7.96, "TAN": 0.945, "NO2": 0.169, "NO3": 19.9, "MW": null}}, {"date": "2026-03-29", "DOC": 58, "AM": {"Temp": 26.9, "DO": 5.67, "pH": 7.69, "TAN": 0.89, "NO2": 0.184, "NO3": 21.0, "MW": null}, "PM": {"Temp": 28.6, "DO": 7.23, "pH": 7.91, "TAN": 0.947, "NO2": 0.158, "NO3": 18.6, "MW": null}}, {"date": "2026-03-30", "DOC": 59, "AM": {"Temp": 27.2, "DO": 6.14, "pH": 7.69, "TAN": 0.91, "NO2": 0.176, "NO3": 22.2, "MW": null}, "PM": {"Temp": 28.2, "DO": 7.02, "pH": 8.03, "TAN": 0.892, "NO2": 0.191, "NO3": 20.6, "MW": null}}, {"date": "2026-03-31", "DOC": 60, "AM": {"Temp": 26.5, "DO": 6.44, "pH": 7.73, "TAN": 1.024, "NO2": 0.152, "NO3": 17.2, "MW": null}, "PM": {"Temp": 27.6, "DO": 7.14, "pH": 8.06, "TAN": 1.058, "NO2": 0.165, "NO3": 29.7, "MW": null}}, {"date": "2026-04-01", "DOC": 61, "AM": {"Temp": 27.4, "DO": 5.45, "pH": 7.7, "TAN": 0.97, "NO2": 0.172, "NO3": 28.0, "MW": null}, "PM": {"Temp": 28.2, "DO": 7.41, "pH": 7.94, "TAN": 1.029, "NO2": 0.17, "NO3": 20.8, "MW": null}}, {"date": "2026-04-02", "DOC": 62, "AM": {"Temp": 26.9, "DO": 6.07, "pH": 7.6, "TAN": 0.971, "NO2": 0.164, "NO3": 21.5, "MW": null}, "PM": {"Temp": 27.9, "DO": 7.01, "pH": 7.86, "TAN": 0.978, "NO2": 0.189, "NO3": 23.5, "MW": null}}, {"date": "2026-04-03", "DOC": 63, "AM": {"Temp": 27.3, "DO": 6.61, "pH": 7.66, "TAN": 1.237, "NO2": 0.226, "NO3": 27.7, "MW": 4.01}, "PM": {"Temp": 28.3, "DO": 6.86, "pH": 7.92, "TAN": 0.971, "NO2": 0.193, "NO3": 27.7, "MW": null}}, {"date": "2026-04-04", "DOC": 64, "AM": {"Temp": 27.0, "DO": 6.41, "pH": 7.73, "TAN": 1.026, "NO2": 0.194, "NO3": 18.8, "MW": null}, "PM": {"Temp": 28.2, "DO": 7.11, "pH": 7.87, "TAN": 1.627, "NO2": 0.166, "NO3": 19.0, "MW": null}}, {"date": "2026-04-05", "DOC": 65, "AM": {"Temp": 27.1, "DO": 5.82, "pH": 7.64, "TAN": 1.009, "NO2": 0.197, "NO3": 25.7, "MW": null}, "PM": {"Temp": 28.6, "DO": 7.46, "pH": 7.86, "TAN": 1.215, "NO2": 0.259, "NO3": 22.4, "MW": null}}, {"date": "2026-04-06", "DOC": 66, "AM": {"Temp": 27.7, "DO": 6.47, "pH": 7.75, "TAN": 1.142, "NO2": 0.2, "NO3": 25.6, "MW": null}, "PM": {"Temp": 28.1, "DO": 7.27, "pH": 7.92, "TAN": 1.052, "NO2": 0.174, "NO3": 26.1, "MW": null}}, {"date": "2026-04-07", "DOC": 67, "AM": {"Temp": 26.6, "DO": 5.63, "pH": 7.62, "TAN": 1.066, "NO2": 0.246, "NO3": 26.8, "MW": null}, "PM": {"Temp": 27.7, "DO": 6.76, "pH": 7.92, "TAN": 0.933, "NO2": 0.191, "NO3": 25.6, "MW": null}}, {"date": "2026-04-08", "DOC": 68, "AM": {"Temp": 27.0, "DO": 6.46, "pH": 7.76, "TAN": 1.609, "NO2": 0.164, "NO3": 26.1, "MW": null}, "PM": {"Temp": 28.4, "DO": 6.99, "pH": 7.92, "TAN": 1.046, "NO2": 0.192, "NO3": 23.3, "MW": null}}, {"date": "2026-04-09", "DOC": 69, "AM": {"Temp": 27.2, "DO": 6.08, "pH": 7.64, "TAN": 1.291, "NO2": 0.174, "NO3": 26.2, "MW": null}, "PM": {"Temp": 28.3, "DO": 6.89, "pH": 7.85, "TAN": 1.081, "NO2": 0.185, "NO3": 27.7, "MW": null}}, {"date": "2026-04-10", "DOC": 70, "AM": {"Temp": 27.2, "DO": 6.0, "pH": 7.7, "TAN": 1.124, "NO2": 0.173, "NO3": 28.3, "MW": 4.68}, "PM": {"Temp": 28.2, "DO": 7.21, "pH": 7.93, "TAN": 1.143, "NO2": 0.168, "NO3": 26.9, "MW": null}}, {"date": "2026-04-11", "DOC": 71, "AM": {"Temp": 26.9, "DO": 6.19, "pH": 7.53, "TAN": 1.106, "NO2": 0.174, "NO3": 31.2, "MW": null}, "PM": {"Temp": 27.8, "DO": 6.75, "pH": 7.88, "TAN": 1.208, "NO2": 0.223, "NO3": 27.8, "MW": null}}, {"date": "2026-04-12", "DOC": 72, "AM": {"Temp": 26.5, "DO": 5.71, "pH": 7.75, "TAN": 1.298, "NO2": 0.195, "NO3": 27.8, "MW": null}, "PM": {"Temp": 29.0, "DO": 7.02, "pH": 7.9, "TAN": 1.143, "NO2": 0.172, "NO3": 28.9, "MW": null}}, {"date": "2026-04-13", "DOC": 73, "AM": {"Temp": 26.8, "DO": 6.12, "pH": 7.64, "TAN": 1.153, "NO2": 0.171, "NO3": 34.0, "MW": null}, "PM": {"Temp": 28.5, "DO": 7.02, "pH": 7.91, "TAN": 1.209, "NO2": 0.175, "NO3": 29.3, "MW": null}}, {"date": "2026-04-14", "DOC": 74, "AM": {"Temp": 26.6, "DO": 5.96, "pH": 7.76, "TAN": 1.286, "NO2": 0.22, "NO3": 30.3, "MW": null}, "PM": {"Temp": 27.6, "DO": 6.43, "pH": 7.88, "TAN": 1.304, "NO2": 0.218, "NO3": 30.2, "MW": null}}, {"date": "2026-04-15", "DOC": 75, "AM": {"Temp": 26.8, "DO": 5.77, "pH": 7.7, "TAN": 1.204, "NO2": 0.206, "NO3": 32.8, "MW": null}, "PM": {"Temp": 28.2, "DO": 7.0, "pH": 8.0, "TAN": 1.329, "NO2": 0.249, "NO3": 28.4, "MW": null}}, {"date": "2026-04-16", "DOC": 76, "AM": {"Temp": 26.8, "DO": 5.77, "pH": 7.66, "TAN": 1.367, "NO2": 0.194, "NO3": 30.4, "MW": null}, "PM": {"Temp": 28.3, "DO": 6.26, "pH": 7.81, "TAN": 1.133, "NO2": 0.182, "NO3": 27.0, "MW": null}}, {"date": "2026-04-17", "DOC": 77, "AM": {"Temp": 27.2, "DO": 5.97, "pH": 7.68, "TAN": 1.15, "NO2": 0.175, "NO3": 30.8, "MW": 6.26}, "PM": {"Temp": 28.0, "DO": 6.54, "pH": 7.9, "TAN": 1.234, "NO2": 0.194, "NO3": 29.5, "MW": null}}, {"date": "2026-04-18", "DOC": 78, "AM": {"Temp": 27.5, "DO": 6.05, "pH": 7.71, "TAN": 2.195, "NO2": 0.202, "NO3": 34.0, "MW": null}, "PM": {"Temp": 28.2, "DO": 6.2, "pH": 7.94, "TAN": 1.548, "NO2": 0.221, "NO3": 30.2, "MW": null}}, {"date": "2026-04-19", "DOC": 79, "AM": {"Temp": 27.8, "DO": 5.57, "pH": 7.66, "TAN": 1.377, "NO2": 0.22, "NO3": 30.5, "MW": null}, "PM": {"Temp": 28.6, "DO": 6.38, "pH": 7.89, "TAN": 1.485, "NO2": 0.195, "NO3": 29.3, "MW": null}}, {"date": "2026-04-20", "DOC": 80, "AM": {"Temp": 27.5, "DO": 6.29, "pH": 7.65, "TAN": 1.185, "NO2": 0.168, "NO3": 35.0, "MW": null}, "PM": {"Temp": 28.5, "DO": 6.63, "pH": 7.81, "TAN": 1.335, "NO2": 0.215, "NO3": 31.8, "MW": null}}]};
+const SHEET_ID = '1tmQZh-7KycCzvsZzSy_Zl72V65uOh1g81j-WwWs-IPw'; // Google Sheets ID
+
+const TANKS=['A','B','C'];
+const COLORS={A:'#1565C0',B:'#2E7D32',C:'#E65100'};
+const PLABELS={Temp:'Temp (°C)',DO:'DO (mg/L)',pH:'pH',TAN:'TAN (mg/L)',NO2:'NO₂ (mg/L)',NO3:'NO₃ (mg/L)',MW:'MW (g)'};
+const UNITS={Temp:'°C',DO:'mg/L',pH:'',TAN:'mg/L',NO2:'mg/L',NO3:'mg/L',MW:'g'};
+const THR={
+  Temp:{ok:[25,30],warn:[23,32],dir:'range'},
+  DO:  {ok:[5,99], warn:[3,99], dir:'min'},
+  pH:  {ok:[7.5,8.5],warn:[7.0,9.0],dir:'range'},
+  TAN: {ok:[0,0.5],warn:[0,2.0],dir:'max'},
+  NO2: {ok:[0,0.1],warn:[0,0.5],dir:'max'},
+  NO3: {ok:[0,50], warn:[0,100],dir:'max'},
+  MW:  null,
+};
+const ACTIONS={
+  DO: {bad:'즉시 O₂ 투입/에어레이션',warn:'산소 집중 모니터링'},
+  TAN:{bad:'즉시 환수 20~30% + 사료 50% 감소',warn:'사료 10~20% 감소'},
+  pH: {bad:'pH 조정제 투입',warn:'pH 변동 원인 점검'},
+  Temp:{bad:'냉/가온 장치 즉시 점검',warn:'수온 변동 확인'},
+  NO2:{bad:'즉시 환수 + 니트리파이어 점검',warn:'질산화 모니터링 강화'},
+  NO3:{bad:'즉시 대량 환수 30%+',warn:'부분 환수 15~20%'},
+};
+let curParam='DO', curDays=7, drawerOpen=false;
+
+function getStatus(p,v){
+  if(v===null||v===undefined) return 'na';
+  const t=THR[p]; if(!t) return 'ok';
+  const [ok1,ok2]=t.ok,[w1,w2]=t.warn;
+  if(t.dir==='range') return (v>=ok1&&v<=ok2)?'ok':(v>=w1&&v<=w2)?'warn':'bad';
+  if(t.dir==='min')   return v>=ok1?'ok':v>=w1?'warn':'bad';
+  return v<=ok2?'ok':v<=w2?'warn':'bad';
+}
+function worst(arr){return arr.includes('bad')?'bad':arr.includes('warn')?'warn':'ok';}
+function valCls(s){return{ok:'val-ok',warn:'val-warn',bad:'val-bad',na:'val-na'}[s]||'val-na';}
+function dotCls(s){return{ok:'dot-ok',warn:'dot-warn',bad:'dot-bad'}[s]||'';}
+
+/* ── compact alert bar ─────────────────────────────────── */
+function buildAlerts(){
+  const out=[];
+  for(const t of TANKS){
+    const days=TANK_DATA[t]||[]; if(!days.length) continue;
+    const td=days[days.length-1];
+    for(const p of ['DO','TAN','pH','Temp','NO2','NO3']){
+      let ws='ok',wv=null;
+      for(const entry of [td.AM||{},td.PM||{}]){
+        const v=entry[p]; if(v===null||v===undefined) continue;
+        const s=getStatus(p,v);
+        if(s==='bad'){ws='bad';wv=v;break;}
+        if(s==='warn'&&ws!=='bad'){ws='warn';wv=v;}
+      }
+      if(ws==='ok') continue;
+      out.push({level:ws,tank:t,param:p,val:wv,action:(ACTIONS[p]||{})[ws]||''});
+    }
+  }
+  out.sort((a,b)=>(a.level==='bad'?0:1)-(b.level==='bad'?0:1));
+  return out;
+}
+
+function renderAlertBar(){
+  const alerts=buildAlerts();
+  const bar=document.getElementById('alertBar');
+  const drawer=document.getElementById('alertDrawer');
+
+  if(!alerts.length){
+    bar.innerHTML='<div class="alert-summary all-ok">&#9989; 전 수조 정상</div>'
+      +'<div class="alert-chips" style="color:#16a34a;font-size:.83rem;font-weight:600">이상 없음 — 정상 운영 중</div>';
+    drawer.classList.remove('open');
+    return;
+  }
+  const badCount =alerts.filter(a=>a.level==='bad').length;
+  const warnCount=alerts.filter(a=>a.level==='warn').length;
+  const sumCls = badCount>0?'has-bad':'has-warn';
+  const sumTxt = (badCount>0?`&#128308; 위험 ${badCount}건 `:'')+(warnCount>0?`&#128993; 주의 ${warnCount}건`:'');
+
+  const chips=alerts.map(a=>{
+    const dec={Temp:1,DO:2,pH:2,TAN:2,NO2:2,NO3:1}[a.param]||2;
+    const vStr=(a.val!==null)?a.val.toFixed(dec):'?';
+    return `<span class="chip chip-${a.level}" title="${a.action}">`
+      +`Tank ${a.tank} ${PLABELS[a.param]} ${vStr}</span>`;
+  }).join('');
+
+  bar.innerHTML=`<div class="alert-summary ${sumCls}" onclick="toggleDrawer()" style="cursor:pointer">${sumTxt} &#9660;</div>`
+    +`<div class="alert-chips">${chips}</div>`;
+
+  // drawer with action details
+  const rows=alerts.map(a=>{
+    const dec={Temp:1,DO:2,pH:2,TAN:2,NO2:2,NO3:1}[a.param]||2;
+    const icon=a.level==='bad'?'&#128308;':'&#128993;';
+    return `<div class="drawer-row">`
+      +`<span class="drawer-tank">${icon} Tank ${a.tank}</span>`
+      +`<span class="drawer-action">${PLABELS[a.param]}: <strong>${a.val!==null?a.val.toFixed(dec):'?'} ${UNITS[a.param]}</strong> &rarr; ${a.action}</span>`
+      +`</div>`;
+  }).join('');
+  drawer.innerHTML=rows;
+}
+function toggleDrawer(){
+  drawerOpen=!drawerOpen;
+  document.getElementById('alertDrawer').classList.toggle('open',drawerOpen);
+}
+
+/* ── tank cards ─────────────────────────────────────────── */
+function fmtV(v,p){
+  if(v===null||v===undefined) return '<span class="val-na">—</span>';
+  const dec={Temp:1,DO:2,pH:2,TAN:3,NO2:3,NO3:1,MW:2}[p]||2;
+  return `<span class="${valCls(getStatus(p,v))}">${v.toFixed(dec)}</span>`;
+}
+function deltaHtml(cur,prev,p){
+  if(cur==null||prev==null) return '<span class="delta-eq">—</span>';
+  const d=cur-prev;
+  const dec={Temp:1,DO:1,pH:2,TAN:2,NO2:2,NO3:0}[p]||2;
+  if(Math.abs(d)<0.005) return '<span class="delta-eq">&#8596;</span>';
+  const f=Math.abs(d).toFixed(dec);
+  const upBad=['TAN','NO2','NO3'].includes(p);
+  const dnBad=p==='DO';
+  if(d>0) return `<span class="${upBad?'delta-up-bad':'delta-good'}">&#9650;${f}</span>`;
+  return `<span class="${dnBad?'delta-dn-bad':'delta-good'}">&#9660;${f}</span>`;
+}
+function renderCards(){
+  for(const t of TANKS){
+    const days=TANK_DATA[t]||[]; if(!days.length) continue;
+    const td=days[days.length-1],yd=days.length>1?days[days.length-2]:null;
+    const AM=td.AM||{},PM=td.PM||{},yAM=yd?yd.AM||{}:{};
+    const allSt=[];
+    ['Temp','DO','pH','TAN','NO2','NO3'].forEach(function(p){
+      [AM[p],PM[p]].filter(v=>v!=null).forEach(v=>allSt.push(getStatus(p,v)));
+    });
+    const ts=worst(allSt);
+    const sbMap={ok:'sb-ok',warn:'sb-warn',bad:'sb-bad'};
+    const stLbl={ok:'정상',warn:'주의',bad:'위험'};
+    const el=document.getElementById('tc-status-'+t);
+    el.className='status-badge '+(sbMap[ts]||'sb-ok');
+    el.textContent=stLbl[ts]||'—';
+    document.getElementById('tc-doc-'+t).textContent='DOC '+(td.DOC||'—')+'일';
+
+    let lastMW=null,mwDate='',mwDOC=null;
+    for(let i=days.length-1;i>=0;i--){
+      const mw=days[i].AM&&days[i].AM.MW;
+      if(mw){lastMW=mw;mwDate=days[i].date;mwDOC=days[i].DOC;break;}
+    }
+    const mwEl=document.getElementById('tc-mw-'+t);
+    mwEl.innerHTML=lastMW
+      ?`<span class="mw-val">MW ${lastMW.toFixed(2)} g</span><span>(DOC${mwDOC} / ${mwDate})</span>`
+      :'<span>MW 기록 없음</span>';
+
+    document.getElementById('tc-body-'+t).innerHTML=
+      ['Temp','DO','pH','TAN','NO2','NO3'].map(function(p){
+        const ws=worst([getStatus(p,AM[p]),getStatus(p,PM[p])].filter(s=>s!=='na'));
+        return `<tr><td class="pname"><span class="dot ${dotCls(ws)}"></span>${PLABELS[p]}</td>`
+          +`<td>${fmtV(AM[p],p)}</td><td>${fmtV(PM[p],p)}</td><td>${deltaHtml(AM[p],yAM[p],p)}</td></tr>`;
+      }).join('');
+  }
+}
+
+/* ── charts (3 separate) ─────────────────────────────────── */
+function getRangeDays(days,n){
+  if(!days.length) return days;
+  const last=new Date(days[days.length-1].date+'T00:00:00');
+  const cut=new Date(last); cut.setDate(cut.getDate()-n+1);
+  return days.filter(d=>new Date(d.date+'T00:00:00')>=cut);
+}
+function makeShapes(p){
+  const t=THR[p]; if(!t) return{shapes:[],anns:[]};
+  const shapes=[],anns=[];
+  const add=(y,c,lbl)=>{
+    shapes.push({type:'line',xref:'paper',yref:'y',x0:0,x1:1,y0:y,y1:y,line:{color:c,width:1.1,dash:'dashdot'}});
+    anns.push({xref:'paper',yref:'y',x:1.01,y,text:lbl,showarrow:false,font:{size:8.5,color:c},xanchor:'left'});
+  };
+  if(t.dir==='min'||t.dir==='range') add(t.ok[0],'#16a34a','OK≥'+t.ok[0]);
+  if(t.dir==='max'||t.dir==='range') add(t.ok[1],'#16a34a','OK≤'+t.ok[1]);
+  if(t.dir==='max'||t.dir==='range') add(t.warn[1],'#dc2626','>'+t.warn[1]);
+  if(t.dir==='min') add(t.warn[0],'#dc2626','<'+t.warn[0]);
+  return{shapes,anns};
+}
+function renderCharts(){
+  const {shapes,anns}=makeShapes(curParam);
+  for(const t of TANKS){
+    const days=getRangeDays(TANK_DATA[t]||[],curDays);
+    const dates=days.map(d=>d.date);
+    const amY=days.map(d=>(d.AM&&d.AM[curParam]!=null)?d.AM[curParam]:null);
+    const pmY=days.map(d=>(d.PM&&d.PM[curParam]!=null)?d.PM[curParam]:null);
+    const col=COLORS[t];
+    const allV=[...amY,...pmY].filter(v=>v!=null);
+    const mn=allV.length?Math.min(...allV):0, mx=allV.length?Math.max(...allV):1;
+    const pad=(mx-mn)*.15||.3;
+    Plotly.react('chart-'+t,[
+      {x:dates,y:amY,name:'AM',mode:'lines+markers',line:{color:col,width:2.2},
+       marker:{size:5,color:col},hovertemplate:'%{x} AM: %{y}<extra></extra>',connectgaps:true},
+      {x:dates,y:pmY,name:'PM',mode:'lines+markers',line:{color:col,width:1.8,dash:'dot'},
+       marker:{size:4,color:col,symbol:'diamond'},hovertemplate:'%{x} PM: %{y}<extra></extra>',
+       connectgaps:true,opacity:.8},
+    ],{
+      margin:{t:4,b:44,l:44,r:76},
+      xaxis:{tickformat:'%m/%d',tickfont:{size:10},showgrid:true,gridcolor:'#e8edf2',zeroline:false},
+      yaxis:{title:UNITS[curParam],titlefont:{size:10},tickfont:{size:10},
+             showgrid:true,gridcolor:'#e8edf2',zeroline:false,range:[mn-pad,mx+pad]},
+      legend:{orientation:'h',y:-.22,x:.5,xanchor:'center',font:{size:10}},
+      plot_bgcolor:'#f8fbff',paper_bgcolor:'#fff',shapes,annotations:anns,showlegend:true,
+    },{responsive:true,displayModeBar:false});
+  }
+}
+function selectParam(p){
+  curParam=p;
+  document.querySelectorAll('.pbtn').forEach(b=>b.classList.toggle('active',b.dataset.p===p));
+  renderCharts();
+}
+function selectDays(d){
+  curDays=d;
+  document.querySelectorAll('.dbtn').forEach(b=>b.classList.toggle('active',parseInt(b.dataset.d)===d));
+  renderCharts();
+}
+
+/* ── Google Sheets 연동 ─────────────────────── */
+function csvRow(line){
+  const r=[];let c='',q=false;
+  for(let i=0;i<line.length;i++){
+    if(line[i]==='"'){q=!q;}
+    else if(line[i]===','&&!q){r.push(c.replace(/^"|"$/g,''));c='';}
+    else{c+=line[i];}
+  }
+  r.push(c.replace(/^"|"$/g,''));return r;
+}
+async function fetchSheet(sheetName){
+  const url='https://docs.google.com/spreadsheets/d/'+SHEET_ID+'/gviz/tq?tqx=out:csv&sheet='+encodeURIComponent(sheetName);
+  const resp=await fetch(url);
+  if(!resp.ok) throw new Error('HTTP '+resp.status+' ('+sheetName+')');
+  const text=await resp.text();
+  const lines=text.split('\n').filter(l=>l.trim());
+  const headers=csvRow(lines[0]).map(h=>h.trim());
+  return lines.slice(1).filter(l=>l.trim()).map(l=>{
+    const vals=csvRow(l);
+    const row={};
+    headers.forEach((h,i)=>{row[h]=vals[i]!==undefined?vals[i].trim():'';});
+    return row;
+  });
+}
+function buildTankData(rows){
+  const byDate={};
+  rows.forEach(function(r){
+    const raw=r['Date']||'';
+    const dt=raw.length>=10?raw.substring(0,10):null;
+    if(!dt) return;
+    if(!byDate[dt]) byDate[dt]={date:dt,DOC:parseInt(r['DOC'])||null,AM:{},PM:{}};
+    const time=(r['Time']||'').trim().toUpperCase();
+    const entry={};
+    [['Temp (°C)','Temp'],['DO (mg/L)','DO'],['pH','pH'],
+     ['TAN (mg/L)','TAN'],['NO2 (mg/L)','NO2'],['NO3 (mg/L)','NO3'],['MW (g)','MW']
+    ].forEach(function([col,k]){
+      const v=r[col];entry[k]=(v!=null&&v!=='')?parseFloat(v):null;
+    });
+    if(time==='AM') byDate[dt].AM=entry;
+    else if(time==='PM') byDate[dt].PM=entry;
+  });
+  return Object.values(byDate).sort((a,b)=>a.date.localeCompare(b.date));
+}
+async function updateNow(){
+  if(SHEET_ID==='YOUR_SHEET_ID_HERE'){
+    showToast('⚠️ SHEET_ID를 설정해주세요 (가이드 참조)',true);return;
+  }
+  const btn=document.getElementById('updBtn');
+  const ov=document.getElementById('overlay');
+  btn.disabled=true;btn.textContent='⏳ 불러오는 중...';ov.classList.add('show');
+  try{
+    for(const t of TANKS){
+      const rows=await fetchSheet('Tank_'+t);
+      TANK_DATA[t]=buildTankData(rows);
+    }
+    document.getElementById('lastUpd').textContent=new Date().toLocaleString('ko-KR',{timeZone:'Asia/Seoul'});
+    renderAll();
+    showToast('✅ Google Sheets 최신 데이터 반영 완료');
+  }catch(e){
+    console.error(e);
+    showToast('⚠️ 오류: '+e.message,true);
+  }finally{
+    ov.classList.remove('show');btn.disabled=false;btn.textContent='🔄 Update Now';
+  }
+}
+
+/* ── 파일 직접 로드 ─────────────────────── */
+function parseExcelBuffer(buf){
+    const wb=XLSX.read(buf,{type:'array',cellDates:true});
+    for(const t of TANKS){
+      const sn='Tank_'+t;
+      if(!wb.SheetNames.includes(sn)){TANK_DATA[t]=[];continue;}
+      const rows=XLSX.utils.sheet_to_json(wb.Sheets[sn],{raw:false,dateNF:'yyyy-mm-dd'});
+      const byDate={};
+      rows.forEach(function(r){
+        const dt=r['Date']?String(r['Date']).substring(0,10):null; if(!dt) return;
+        if(!byDate[dt]) byDate[dt]={date:dt,DOC:parseInt(r['DOC'])||null,AM:{},PM:{}};
+        const time=String(r['Time']||'').trim().toUpperCase();
+        const entry={};
+        ['Temp (°C)','DO (mg/L)','pH','TAN (mg/L)','NO2 (mg/L)','NO3 (mg/L)','MW (g)'].forEach(function(col){
+          const k=col.replace(' (°C)','').replace(' (mg/L)','').replace(' (g)','');
+          const v=r[col]; entry[k]=(v!=null&&v!=='')?parseFloat(v):null;
+        });
+        if(time==='AM') byDate[dt].AM=entry; else if(time==='PM') byDate[dt].PM=entry;
+      });
+      TANK_DATA[t]=Object.values(byDate).sort(function(a,b){return a.date.localeCompare(b.date);});
+    }
+    document.getElementById('lastUpd').textContent=new Date().toLocaleString('ko-KR',{timeZone:'Asia/Seoul'});
+    renderAll();
+    showToast('✅ 파일 데이터 반영 완료');
+}
+
+
+function showToast(msg,err){
+  var t=document.getElementById('toast');
+  t.textContent=msg; t.style.background=err?'#b91c1c':'#1a2b3c';
+  t.classList.add('show'); setTimeout(function(){t.classList.remove('show');},4000);
+}
+
+function renderAll(){ renderAlertBar(); renderCards(); renderCharts(); }
+renderAll();
+
+</script>
+</body>
+</html>
